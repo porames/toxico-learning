@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@theme {
+  /* Primary — vivid iris/purple, the anchor color of the whole UI */
+  --color-iris-50: #f5f3ff;
+  --color-iris-100: #ede9fe;
+  --color-iris-200: #ddd6fe;
+  --color-iris-300: #c4b5fd;
+  --color-iris-400: #a48afc;
+  --color-iris-500: #8b6ef8;
+  --color-iris-600: #7c5cfc;
+  --color-iris-700: #6842e0;
+  --color-iris-800: #5433b8;
+  --color-iris-900: #402993;
+
+  /* Supporting mesh accents — used only in the signature gradient, never in UI chrome */
+  --color-mesh-blue: #4f7cff;
+  --color-mesh-teal: #2fd6c0;
+  --color-mesh-pink: #ff6fa5;
+  --color-mesh-amber: #ffb84d;
+
+  --color-ink-900: #1a1523;
+  --color-ink-700: #3f3856;
+  --color-ink-500: #6b6480;
+  --color-ink-300: #a7a2b8;
+
+  --color-canvas: #fafaf9;
+
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --shadow-soft: 0 1px 2px rgba(26, 21, 35, 0.04), 0 8px 24px -8px rgba(26, 21, 35, 0.08);
+  --shadow-button: 0 1px 2px rgba(104, 66, 224, 0.08), 0 6px 16px -4px rgba(124, 92, 252, 0.45);
+
+  --background-image-mesh-gradient: radial-gradient(at 20% 20%, #7c5cfc 0px, transparent 50%),
+    radial-gradient(at 80% 10%, #4f7cff 0px, transparent 50%),
+    radial-gradient(at 90% 70%, #2fd6c0 0px, transparent 50%),
+    radial-gradient(at 15% 85%, #ff6fa5 0px, transparent 50%),
+    radial-gradient(at 60% 50%, #6842e0 0px, transparent 55%);
+
+  --animate-float: float 8s ease-in-out infinite;
+  --animate-float-slow: float 12s ease-in-out infinite;
+  --animate-float-delayed: float 10s ease-in-out infinite 2s;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(0, -16px) rotate(3deg);
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-canvas text-ink-900;
+  }
+
+  /* Visible keyboard focus everywhere, styled to match the brand rather than removed */
+  :focus-visible {
+    outline: 2px solid #7c5cfc;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

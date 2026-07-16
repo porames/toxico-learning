@@ -1,0 +1,28 @@
+{
+  "name": "firebase-login-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "firebase": "^11.0.2",
+    "firebase-admin": "^14.1.0",
+    "lucide-react": "^1.24.0",
+    "next": "14.2.16",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^5.5.2"
+  }
+}
