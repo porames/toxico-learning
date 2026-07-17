@@ -291,6 +291,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const diagnosisSuggestions = useMemo(() => {
         if (!diagnosisInput.trim() || diagnosisResult) return [];
         const lower = diagnosisInput.toLowerCase();
+        if (DISEASES_DB.some((d) => d.name.toLowerCase() === lower)) return [];
         return DISEASES_DB.filter((d) => d.name.toLowerCase().includes(lower));
     }, [diagnosisInput, diagnosisResult]);
 
