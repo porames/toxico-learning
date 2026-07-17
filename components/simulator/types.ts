@@ -51,22 +51,25 @@ export interface TimerNodeData {
 }
 
 export interface InterventionNodeData {
-  category: string;
-  name: string;
-  custom: string;
+  actions: string[];
+}
+
+export interface RequiredOrGroup {
+  or: string[];
 }
 
 export interface RequiredInterventionNodeData {
-  required: { category: string; name: string }[];
+  actions: RequiredOrGroup[];
 }
 
-export interface OutcomeNodeData {
-  outcomeType: string;
-  narrative: string;
-  newSymptoms: string;
-  vitalChanges: Record<string, string>;
-  unlockedDispositions: string[];
-}
+export type OutcomeKind = "improved" | "deteriorated" | "critical" | "unchanged" | "unlockEvent";
+
+export type OutcomeNodeData =
+  | { outcomeType: "improved"; narrative: string; newSymptoms: string; vitalChanges: Record<string, string> }
+  | { outcomeType: "deteriorated"; narrative: string; newSymptoms: string; vitalChanges: Record<string, string> }
+  | { outcomeType: "critical"; narrative: string; newSymptoms: string; vitalChanges: Record<string, string> }
+  | { outcomeType: "unchanged"; narrative: string; newSymptoms: string; vitalChanges: Record<string, string> }
+  | { outcomeType: "unlockEvent"; unlockedDispositions: string[] };
 
 export interface EndNodeData {
   outcome: "win" | "lose";
@@ -77,7 +80,7 @@ export type ManagementNode =
   | { id: string; type: "start"; x: number; y: number; data: Record<string, never> }
   | { id: string; type: "timer"; x: number; y: number; data: TimerNodeData }
   | { id: string; type: "intervention"; x: number; y: number; data: InterventionNodeData }
-  | { id: string; type: "required-intervention"; x: number; y: number; data: RequiredInterventionNodeData }
+  | { id: string; type: "required"; x: number; y: number; data: RequiredInterventionNodeData }
   | { id: string; type: "outcome"; x: number; y: number; data: OutcomeNodeData }
   | { id: string; type: "end"; x: number; y: number; data: EndNodeData };
 
@@ -98,6 +101,7 @@ export interface CaseData {
   age: string;
   sex: string;
   chiefComplaint: string;
+  diagnoses: string[];
   background: string;
   vitals: Record<string, VitalSign>;
   exam: ExamFinding[];
@@ -190,3 +194,13 @@ export interface NodeMeta {
   color: string;
   soft: string;
 }
+
+export type PlayerEvent =
+  | { kind: "game_start"; timestamp: number }
+  | { kind: "vitals_requested"; timestamp: number }
+  | { kind: "exam_performed"; timestamp: number; system: string }
+  | { kind: "test_ordered"; timestamp: number; name: string }
+  | { kind: "intervention_applied"; timestamp: number; name: string }
+  | { kind: "outcome"; timestamp: number; outcomeType: OutcomeKind }
+  | { kind: "timer_expired"; timestamp: number }
+  | { kind: "game_over"; timestamp: number; reason: string };

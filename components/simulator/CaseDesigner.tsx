@@ -10,7 +10,7 @@ import type {
 } from "./types";
 import {
     C, FONT_LINK, LAB_LIBRARY, IMAGING_LIBRARY, EXAM_SYSTEMS,
-    MANAGEMENT_LIBRARY, OUTCOME_TYPES, VITAL_DEFS,
+    MANAGEMENT_LIBRARY, OUTCOME_TYPES, VITAL_DEFS, DISEASES_DB,
 } from "./database";
 import {
     inputStyle, TextInput, TextArea, Field, PrimaryButton, GhostButton, Chip, Card, SectionHeading,
@@ -27,6 +27,7 @@ const emptyCase: CaseData = {
     age: "",
     sex: "Female",
     chiefComplaint: "",
+    diagnoses: [],
     background: "",
     vitals: VITAL_DEFS.reduce((acc, v) => {
         acc[v.key] = { value: "", abnormal: false };
@@ -46,6 +47,51 @@ const emptyCase: CaseData = {
    STEP 0 — BACKGROUND
 --------------------------------------------------------------- */
 function StepBackground({ data, update }: StepProps) {
+    const [diagInput, setDiagInput] = useState("");
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(-1);
+    const addDiagnosis = (name?: string) => {
+        const val = (name ?? diagInput).trim();
+        if (!val) return;
+        if ((data.diagnoses ?? []).includes(val)) return;
+        update({ diagnoses: [...(data.diagnoses ?? []), val] });
+        setDiagInput("");
+        setShowSuggestions(false);
+        setActiveIndex(-1);
+    };
+    const removeDiagnosis = (idx: number) => {
+        update({ diagnoses: (data.diagnoses ?? []).filter((_, i) => i !== idx) });
+    };
+
+    const suggestions = useMemo(() => {
+        if (!diagInput.trim()) return [];
+        const lower = diagInput.toLowerCase();
+        const existing = data.diagnoses ?? [];
+        return DISEASES_DB.filter(
+            (d) => d.name.toLowerCase().includes(lower) && !existing.includes(d.name)
+        );
+    }, [diagInput, data.diagnoses]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            if (activeIndex >= 0 && activeIndex < suggestions.length) {
+                addDiagnosis(suggestions[activeIndex].name);
+            } else {
+                addDiagnosis();
+            }
+        } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActiveIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIndex((prev) => Math.max(prev - 1, -1));
+        } else if (e.key === "Escape") {
+            setShowSuggestions(false);
+            setActiveIndex(-1);
+        }
+    };
+
     return (
         <div>
             <SectionHeading eyebrow="01 · Setup" title="Case background" desc="Set the scene: who the patient is and why they presented to the emergency department." />
@@ -67,6 +113,52 @@ function StepBackground({ data, update }: StepProps) {
                     </select>
                 </Field>
             </div>
+            <Field label="Diagnoses" hint="Definitive diagnosis/diagnoses for this case (hidden from students during play).">
+                <div style={{ position: "relative", display: "flex", gap: 8, marginBottom: 8 }}>
+                    <TextInput
+                        value={diagInput}
+                        onChange={(e) => { setDiagInput(e.target.value); setShowSuggestions(true); setActiveIndex(-1); }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="e.g. ST-elevation myocardial infarction (STEMI)"
+                        style={{ flex: 1 }}
+                    />
+                    <PrimaryButton onClick={() => addDiagnosis()} style={{ height: 40, flexShrink: 0 }}>Add</PrimaryButton>
+                    {showSuggestions && suggestions.length > 0 && (
+                        <div style={{
+                            position: "absolute", top: "100%", left: 0, right: 80, zIndex: 50,
+                            background: C.surface, border: `1px solid ${C.line}`,
+                            borderRadius: 6, boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                            maxHeight: 220, overflowY: "auto", marginTop: 2,
+                        }}>
+                            {suggestions.map((s, i) => (
+                                <div
+                                    key={s.id}
+                                    onMouseDown={() => addDiagnosis(s.name)}
+                                    style={{
+                                        padding: "8px 12px", cursor: "pointer",
+                                        fontFamily: "'IBM Plex Sans'", fontSize: 13.5, color: C.ink,
+                                        background: i === activeIndex ? C.accentSoft : "transparent",
+                                    }}
+                                >
+                                    {s.name}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                {(data.diagnoses?.length ?? 0) > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {data.diagnoses?.map((d, i) => (
+                            <Chip key={i} color={C.accent} soft={C.accentSoft}>
+                                {d}
+                                <button onClick={() => removeDiagnosis(i)} style={{ border: "none", background: "none", color: C.inkFaint, cursor: "pointer", fontSize: 12, marginLeft: 6, padding: 0 }}>×</button>
+                            </Chip>
+                        ))}
+                    </div>
+                )}
+            </Field>
             <Field label="Background & history" hint="Presenting story, past medical history, medications, allergies — whatever the student should see on arrival.">
                 <TextArea value={data.background} onChange={(e) => update({ background: e.target.value })} placeholder="e.g. Known hypertension and type 2 diabetes. Sudden onset central chest pain radiating to the left arm while climbing stairs, associated with diaphoresis and nausea..." />
             </Field>
@@ -197,8 +289,9 @@ function StepExam({ data, update }: StepProps) {
 /* ---------------------------------------------------------------
    STEP 3 — INVESTIGATIONS
 --------------------------------------------------------------- */
-function StepInvestigations({ data, update }: StepProps) {
+function StepInvestigations({ data, update, caseId }: StepProps & { caseId: string | null }) {
     const [tab, setTab] = useState("labs");
+    const [uploadingId, setUploadingId] = useState<string | null>(null);
 
     const addLab = (category: string, test: LabTest) => {
         const lab: LabInvestigation = { id: uid(), kind: "lab", category, name: test.name, unit: test.unit, normalRange: test.normal, value: "", abnormal: false };
@@ -219,10 +312,30 @@ function StepInvestigations({ data, update }: StepProps) {
         });
     };
 
-    const handleImageUpload = (id: string, file: File) => {
+    const handleImageUpload = async (id: string, file: File) => {
+        setUploadingId(id);
+        const token = await auth.currentUser?.getIdToken();
+        if (!token || !caseId) { setUploadingId(null); return; }
         const reader = new FileReader();
-        reader.onload = () => {
-            patch(id, { imageUrl: reader.result as string });
+        reader.onload = async () => {
+            const imageData = reader.result as string;
+            try {
+                const res = await fetch("http://127.0.0.1:5001/rama-toxico-edu/us-central1/imageUpload", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageData, caseId, investigationId: id }),
+                });
+                const data = await res.json();
+                console.log(data)
+                if (data.imageUrl) {
+                    patch(id, { imageUrl: data.imageUrl });
+                }
+
+            } catch (err) {
+                console.error("Image upload failed:", err);
+            } finally {
+                setUploadingId(null);
+            }
         };
         reader.readAsDataURL(file);
     };
@@ -363,25 +476,33 @@ function StepInvestigations({ data, update }: StepProps) {
                                             gap: 4,
                                             width: 80,
                                             minHeight: 56,
-                                            border: `1px dashed ${C.line}`,
+                                            border: `1px dashed ${uploadingId === inv.id ? C.accent : C.line}`,
                                             borderRadius: 6,
-                                            cursor: "pointer",
-                                            color: C.inkFaint,
+                                            cursor: uploadingId === inv.id ? "default" : "pointer",
+                                            color: uploadingId === inv.id ? C.accent : C.inkFaint,
                                             fontSize: 11,
                                             fontFamily: "'IBM Plex Sans'",
                                             flexShrink: 0,
+                                            opacity: uploadingId === inv.id ? 0.6 : 1,
                                         }}
                                     >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                            <polyline points="17 8 12 3 7 8" />
-                                            <line x1="12" y1="3" x2="12" y2="15" />
-                                        </svg>
-                                        Upload
+                                        {uploadingId === inv.id ? (
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" style={{ animation: "spin 0.8s linear infinite" }}>
+                                                <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
+                                            </svg>
+                                        ) : (
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                <polyline points="17 8 12 3 7 8" />
+                                                <line x1="12" y1="3" x2="12" y2="15" />
+                                            </svg>
+                                        )}
+                                        {uploadingId === inv.id ? "Uploading…" : "Upload"}
                                         <input
                                             type="file"
                                             accept="image/*"
                                             style={{ display: "none" }}
+                                            disabled={uploadingId === inv.id}
                                             onChange={(e) => {
                                                 const f = e.target.files?.[0];
                                                 if (f) handleImageUpload(inv.id, f);
@@ -443,6 +564,11 @@ function StepReview({ data }: StepReviewProps) {
                     {data.age || "—"} y/o {data.sex} · {data.chiefComplaint || "no chief complaint set"}
                 </div>
                 <h3 style={{ fontFamily: "'IBM Plex Sans'", fontSize: 26, color: C.ink, margin: "6px 0 14px" }}>{data.title || "Untitled case"}</h3>
+                {data.diagnoses?.length > 0 && (
+                    <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: C.accent, fontWeight: 600, marginBottom: 10 }}>
+                        Diagnoses: {data.diagnoses.join(", ")}
+                    </div>
+                )}
                 <p style={{ fontFamily: "'IBM Plex Sans'", fontSize: 14.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 22 }}>{data.background || "No background written yet."}</p>
 
                 <div style={{ marginBottom: 22 }}>
@@ -509,14 +635,14 @@ function StepReview({ data }: StepReviewProps) {
                                         const incoming = edges.filter((e) => e.target === n.id).map((e) => {
                                             const src = nodes.find((s) => s.id === e.source);
                                             if (!src) return null;
-                                            const label = src.type === "intervention" ? src.data.custom || src.data.name : src.type === "timer" ? `${src.data.minutes}min: ${src.data.note}` : "Case start";
+                                            const label = src.type === "intervention" ? (src.data.actions?.length > 1 ? `${src.data.actions[0]} +${src.data.actions.length - 1}` : src.data.actions?.[0] || "?") : src.type === "timer" ? `${src.data.minutes}min: ${src.data.note}` : "Case start";
                                             return e.label ? `${label} (${e.label})` : label;
                                         }).filter(Boolean);
                                         return (
                                             <div key={n.id} style={{ fontFamily: "'IBM Plex Sans'", fontSize: 13.5 }}>
                                                 <Chip color={o.color} soft={o.soft}>{o.label}</Chip>{" "}
                                                 <span style={{ color: C.inkSoft }}>{incoming.length ? `from: ${incoming.join(", ")}` : "not yet connected"}</span>
-                                                {n.data.narrative && <div style={{ color: C.ink, marginTop: 2, marginLeft: 2 }}>{n.data.narrative}</div>}
+                                                {n.data.outcomeType !== "unlockEvent" && n.data.narrative && <div style={{ color: C.ink, marginTop: 2, marginLeft: 2 }}>{n.data.narrative}</div>}
                                             </div>
                                         );
                                     })}
@@ -551,7 +677,11 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
     const [saving, setSaving] = useState(false);
     const [caseId, setCaseId] = useState<string | null>(initialCaseId && initialCaseId !== "new" ? initialCaseId : null);
     const [loading, setLoading] = useState(!!initialCaseId && initialCaseId !== "new");
-    const update = (patch: Partial<CaseData>) => setCaseData((d) => ({ ...d, ...patch }));
+    const update = (patch: Partial<CaseData>) => {
+
+        setCaseData((d) => ({ ...d, ...patch }))
+        console.log(caseData)
+    };
 
     useEffect(() => {
         if (!initialCaseId || initialCaseId === "new") return;
@@ -559,7 +689,42 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
             try {
                 const snap = await getDoc(doc(db, "simulations", initialCaseId));
                 if (snap.exists()) {
-                    setCaseData(snap.data() as CaseData);
+                    const raw = snap.data() as CaseData & { diagnosis?: string };
+                    if (!Array.isArray(raw.diagnoses) && raw.diagnosis) {
+                        raw.diagnoses = [raw.diagnosis];
+                    }
+                    raw.diagnoses ??= [];
+                    // migrate old node data formats
+                    if (raw.managementGraph?.nodes) {
+                        raw.managementGraph.nodes = raw.managementGraph.nodes.map((n) => {
+                            if (n.type === "intervention" && !Array.isArray((n.data as any).actions)) {
+                                const old = n.data as any;
+                                const actions: string[] = [];
+                                if (old.custom) actions.push(old.custom);
+                                if (old.name && !actions.includes(old.name)) actions.push(old.name);
+                                if (Array.isArray(old.options)) old.options.forEach((o: string) => { if (!actions.includes(o)) actions.push(o); });
+                                return { ...n, data: { actions: actions.length > 0 ? actions : [old.name || "?"] } };
+                            }
+                            if (n.type === "required" && !Array.isArray((n.data as any).actions)) {
+                                const old = n.data as any;
+                                if (Array.isArray(old.required)) {
+                                    if (old.required[0]?.items) {
+                                        return { ...n, data: { actions: old.required.map((g: any) => ({ or: g.items.map((r: any) => r.name) })) } };
+                                    }
+                                    if (old.required[0]?.category) {
+                                        return { ...n, data: { actions: old.required.map((r: any) => ({ or: [r.name] })) } };
+                                    }
+                                }
+                                return { ...n, data: { actions: [{ or: ["?"] }] } };
+                            }
+                            if (n.type === "required" && Array.isArray((n.data as any).actions) && Array.isArray((n.data as any).actions[0])) {
+                                const old = n.data as any;
+                                return { ...n, data: { actions: old.actions.map((g: string[]) => ({ or: g })) } };
+                            }
+                            return n;
+                        });
+                    }
+                    setCaseData(raw as CaseData);
                 }
             } catch (err) {
                 console.error("Failed to load case:", err);
@@ -616,7 +781,8 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
     return (
         <div style={{ background: C.paper, minHeight: "100vh", fontFamily: "'IBM Plex Sans'" }}>
             {/* font + global reset */}
-<style dangerouslySetInnerHTML={{ __html: `@import url('${FONT_LINK}'); * { box-sizing: border-box; } input:focus, textarea:focus, select:focus { border-color: ${C.accent} !important; }
+            <style dangerouslySetInnerHTML={{
+                __html: `@import url('${FONT_LINK}'); * { box-sizing: border-box; } input:focus, textarea:focus, select:focus { border-color: ${C.accent} !important; }
                 .sidebar-overlay { display: none; }
                 @media (max-width: 768px) {
                     .sidebar-desktop { display: none !important; }
@@ -787,7 +953,7 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
                     {step === 0 && <StepBackground data={caseData} update={update} />}
                     {step === 1 && <StepVitals data={caseData} update={update} />}
                     {step === 2 && <StepExam data={caseData} update={update} />}
-                    {step === 3 && <StepInvestigations data={caseData} update={update} />}
+                    {step === 3 && <StepInvestigations data={caseData} update={update} caseId={caseId} />}
                     {step === 4 && <StepManagement data={caseData} update={update} />}
                     {step === 5 && <StepReview data={caseData} />}
 

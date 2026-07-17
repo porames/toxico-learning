@@ -50,7 +50,7 @@ export function VitalsPanel({
                                 <span className="text-[11px] font-mono font-semibold tracking-wider text-ink-500 uppercase">
                                     {v.label}
                                 </span>
-                                {val.abnormal && <span className="text-[10px] font-mono font-semibold text-rose-500 ml-auto">ABN</span>}
+
                             </div>
                             <div className="flex items-baseline gap-1">
                                 <span className={`text-xl font-mono font-semibold ${val.abnormal ? "text-rose-600" : "text-ink-900"}`}>

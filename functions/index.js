@@ -5,6 +5,7 @@ import sharp from "sharp";
 
 const app = initializeApp({
     credential: cert("../secret/serviceAccount.json"),
+    storageBucket: "rama-toxico-edu.firebasestorage.app",
 });
 
 const storage = admin.storage();
@@ -328,7 +329,7 @@ export const imageUpload = onRequest(async (req, res) => {
         }
 
         const ext = format === "jpeg" ? "jpg" : format;
-        const fileName = `simulation/${crypto.randomUUID()}.${ext}`;
+        const fileName = `simulation/${investigationId}.${ext}`;
         const bucket = storage.bucket();
         const file = bucket.file(fileName);
 
@@ -339,23 +340,6 @@ export const imageUpload = onRequest(async (req, res) => {
         // make publicly readable and get download URL
         await file.makePublic();
         const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
-
-        // update case document in Firestore
-        const caseRef = db.collection("simulations").doc(caseId);
-        const caseSnap = await caseRef.get();
-        if (!caseSnap.exists) {
-            res.status(404).json({ error: "Case not found" });
-            return;
-        }
-
-        const caseData = caseSnap.data();
-        const investigations = (caseData.investigations || []).map((inv) => {
-            if (inv.id === investigationId) {
-                return { ...inv, imageUrl: publicUrl };
-            }
-            return inv;
-        });
-        await caseRef.update({ investigations });
 
         res.status(200).json({ imageUrl: publicUrl });
     } catch (err) {

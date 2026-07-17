@@ -18,12 +18,11 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 function defaultNodeData(type: string) {
     if (type === "timer") return { minutes: 10, note: "no critical action taken" };
     if (type === "intervention") {
-        const cat = Object.keys(MANAGEMENT_LIBRARY)[0];
-        return { category: cat, name: MANAGEMENT_LIBRARY[cat]![0], custom: "" };
+        return { actions: [MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0]] };
     }
-    if (type === "required-intervention") {
-        const cat = Object.keys(MANAGEMENT_LIBRARY)[0];
-        return { required: [{ category: cat, name: MANAGEMENT_LIBRARY[cat]![0] }] };
+    if (type === "required") {
+        const first = MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0];
+        return { actions: [{ or: [first] }] };
     }
     if (type === "outcome")
         return {
@@ -31,7 +30,6 @@ function defaultNodeData(type: string) {
             narrative: "",
             newSymptoms: "",
             vitalChanges: VITAL_DEFS.reduce((acc, v) => ({ ...acc, [v.key]: "" }), {}),
-            unlockedDispositions: [],
         };
     if (type === "end") return { outcome: "win", narrative: "" };
     return {};
@@ -46,7 +44,7 @@ function GraphNode({ node, selected, onMouseDownHeader, onStartConnect }: GraphN
     const size = NODE_SIZE[node.type];
     const isOutcome = node.type === "outcome";
     const outcomeDef = isOutcome ? OUTCOME_TYPES.find((o) => o.key === node.data.outcomeType) : null;
-    const meta = isOutcome && outcomeDef ? { label: outcomeDef.label, color: outcomeDef.color, soft: outcomeDef.soft } : NODE_META[node.type];
+    const meta = isOutcome && outcomeDef ? { label: outcomeDef.label, color: outcomeDef.color, soft: outcomeDef.soft } : (NODE_META[node.type] ?? { label: "?", color: "#888", soft: "#eee" });
 
     return (
         <div
@@ -81,20 +79,26 @@ function GraphNode({ node, selected, onMouseDownHeader, onStartConnect }: GraphN
                     </>
                 )}
                 {node.type === "intervention" && (
-                    <>
-                        <div className="text-[14.5px] font-sans font-semibold" style={{ color: C.ink }}>{node.data.custom || node.data.name}</div>
-                        <div className="text-[10.5px] font-mono mt-0.5" style={{ color: C.inkFaint }}>{node.data.category}</div>
-                    </>
+                    <div className="flex flex-col gap-1">
+                        {(node.data.actions ?? []).map((a: string) => (
+                            <div key={a} className="text-[13px] font-sans" style={{ color: C.ink }}>· {a}</div>
+                        ))}
+                    </div>
                 )}
-                {node.type === "required-intervention" && (
+                {node.type === "required" && (
                     <>
                         <div className="text-[11px] font-mono font-semibold" style={{ color: meta.color }}>Required:</div>
                         <div className="text-[12px] font-sans mt-0.5 leading-snug" style={{ color: C.ink }}>
-                            {node.data.required.map((r) => r.name).join(", ") || "—"}
+                            {(node.data.actions ?? []).map((group, gi) => (
+                                <span key={gi}>
+                                    {gi > 0 && <span className="text-[10px] font-mono mx-0.5" style={{ color: C.inkFaint }}>AND</span>}
+                                    <span>({(group.or ?? []).join(" OR ")})</span>
+                                </span>
+                            )) || "—"}
                         </div>
                     </>
                 )}
-                {node.type === "outcome" && outcomeDef && outcomeDef.key === "unlock-event" && (
+                {node.type === "outcome" && outcomeDef && outcomeDef.key === "unlockEvent" && node.data.outcomeType === "unlockEvent" && (
                     <>
                         <Chip color={outcomeDef.color} soft={outcomeDef.soft}>{outcomeDef.label}</Chip>
                         {node.data.unlockedDispositions.length > 0 ? (
@@ -108,7 +112,7 @@ function GraphNode({ node, selected, onMouseDownHeader, onStartConnect }: GraphN
                         )}
                     </>
                 )}
-                {node.type === "outcome" && outcomeDef && outcomeDef.key !== "unlock-event" && (
+                {node.type === "outcome" && outcomeDef && outcomeDef.key !== "unlockEvent" && node.data.outcomeType !== "unlockEvent" && (
                     <>
                         <Chip color={outcomeDef.color} soft={outcomeDef.soft}>{outcomeDef.label}</Chip>
                         <div className="text-[11.5px] font-sans mt-1.5 leading-snug" style={{ color: C.inkSoft }}>
@@ -169,6 +173,9 @@ export default function StepManagement({ data, update }: StepProps) {
     const [selected, setSelected] = useState<SelectionKind>(null);
     const [connectLine, setConnectLine] = useState<ConnectLine | null>(null);
     const [scale, setScale] = useState(1);
+    const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+
+    const toggleCat = (cat: string) => setExpandedCats((prev) => ({ ...prev, [cat]: !prev[cat] }));
 
     const setGraph = (patch: Partial<ManagementGraph>) => update({ managementGraph: { ...graph, ...patch } });
 
@@ -178,7 +185,7 @@ export default function StepManagement({ data, update }: StepProps) {
         return { x: (clientX - rect.left + el.scrollLeft) / scale, y: (clientY - rect.top + el.scrollTop) / scale };
     };
 
-    const addNode = (type: "timer" | "intervention" | "required-intervention" | "outcome" | "end") => {
+    const addNode = (type: "timer" | "intervention" | "required" | "outcome" | "end") => {
         const id = uid();
         const n = { id, type, x: 340 + Math.random() * 60, y: 80 + Math.random() * 360, data: defaultNodeData(type) } as ManagementNode;
         setGraph({ nodes: [...graph.nodes, n] });
@@ -188,6 +195,16 @@ export default function StepManagement({ data, update }: StepProps) {
 
     const updateNodeData = (id: string, patch: Record<string, unknown>) =>
         setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)) as ManagementNode[] });
+
+    const resetOutcomeData = (outcomeType: string) => {
+        if (outcomeType === "unlockEvent") return { outcomeType, unlockedDispositions: [] as string[] };
+        return {
+            outcomeType,
+            narrative: "",
+            newSymptoms: "",
+            vitalChanges: VITAL_DEFS.reduce((acc, v) => ({ ...acc, [v.key]: "" }), {} as Record<string, string>),
+        };
+    };
 
     const setOutcomeType = (id: string, outcomeType: string) => {
         if (outcomeType === "critical") {
@@ -199,13 +216,13 @@ export default function StepManagement({ data, update }: StepProps) {
             };
             setGraph({
                 nodes: [
-                    ...graph.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, outcomeType } } as ManagementNode : n)),
+                    ...graph.nodes.map((n) => (n.id === id ? { ...n, data: resetOutcomeData(outcomeType) } as ManagementNode : n)),
                     endNode,
                 ],
                 edges: [...graph.edges, { id: uid(), source: id, target: endId, label: "" }],
             });
         } else {
-            updateNodeData(id, { outcomeType });
+            setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: resetOutcomeData(outcomeType) } as ManagementNode : n)) });
         }
     };
 
@@ -285,7 +302,7 @@ export default function StepManagement({ data, update }: StepProps) {
             <div className="flex gap-2 mb-3.5 items-center flex-wrap">
                 <GhostButton onClick={() => addNode("timer")}>+ Timer node</GhostButton>
                 <GhostButton onClick={() => addNode("intervention")}>+ Intervention node</GhostButton>
-                <GhostButton onClick={() => addNode("required-intervention")}>+ Required node</GhostButton>
+                <GhostButton onClick={() => addNode("required")}>+ Required node</GhostButton>
                 <GhostButton onClick={() => addNode("outcome")}>+ Outcome node</GhostButton>
                 <GhostButton onClick={() => addNode("end")}>+ End node</GhostButton>
                 <div className="flex-1" />
@@ -362,7 +379,7 @@ export default function StepManagement({ data, update }: StepProps) {
                     </div>
                 </div>
 
-                <div className="fixed bottom-6 right-6" style={{ width: 300 }}>
+                <div className="fixed bottom-12 left-6" style={{ width: 300 }}>
                     <Card>
                         {!selectedNode && !selectedEdge && (
                             <div className="text-[13.5px] font-sans" style={{ color: C.inkFaint }}>
@@ -392,146 +409,215 @@ export default function StepManagement({ data, update }: StepProps) {
                         {selectedNode && selectedNode.type === "intervention" && (
                             <>
                                 <div className="text-[11px] font-mono font-bold mb-2.5 uppercase" style={{ color: C.accent }}>Intervention node</div>
-                                <Field label="Category">
-                                    <select
-                                        value={selectedNode.data.category}
-                                        onChange={(e) => updateNodeData(selectedNode.id, { category: e.target.value, name: MANAGEMENT_LIBRARY[e.target.value][0] })}
-                                        style={inputStyle}
-                                    >
-                                        {Object.keys(MANAGEMENT_LIBRARY).map((c) => (
-                                            <option key={c}>{c}</option>
-                                        ))}
-                                    </select>
-                                </Field>
-                                <Field label="Action">
-                                    <select value={selectedNode.data.name} onChange={(e) => updateNodeData(selectedNode.id, { name: e.target.value })} style={inputStyle}>
-                                        {MANAGEMENT_LIBRARY[selectedNode.data.category].map((a) => (
-                                            <option key={a}>{a}</option>
-                                        ))}
-                                    </select>
-                                </Field>
-                                <Field label="Or custom action">
-                                    <TextInput value={selectedNode.data.custom} onChange={(e) => updateNodeData(selectedNode.id, { custom: e.target.value })} placeholder="Overrides the dropdown if filled" />
-                                </Field>
-                                <GhostButton danger onClick={() => deleteNode(selectedNode.id)} style={{ marginTop: 6 }}>Delete node</GhostButton>
+                                <div className="space-y-1">
+                                    {Object.entries(MANAGEMENT_LIBRARY).map(([cat, actions]) => {
+                                        const catSelected = actions.filter((a) => selectedNode.data.actions.includes(a)).length;
+                                        const isOpen = expandedCats[cat] ?? catSelected > 0;
+                                        return (
+                                            <div key={cat} className="rounded" style={{ border: `1px solid ${C.line}`, overflow: "hidden" }}>
+                                                <button
+                                                    onClick={() => toggleCat(cat)}
+                                                    style={{
+                                                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                                                        width: "100%", border: "none", background: C.paperDeep,
+                                                        padding: "6px 10px", cursor: "pointer",
+                                                    }}
+                                                >
+                                                    <span className="text-[10.5px] font-mono font-semibold" style={{ color: C.inkSoft }}>
+                                                        {cat} {catSelected > 0 && <span style={{ color: C.accent }}>({catSelected})</span>}
+                                                    </span>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.inkFaint} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                                        style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+                                                    >
+                                                        <polyline points="6 9 12 15 18 9" />
+                                                    </svg>
+                                                </button>
+                                                {isOpen && (
+                                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 10px" }}>
+                                                        {actions.map((a) => {
+                                                            const selected = selectedNode.data.actions.includes(a);
+                                                            return (
+                                                                <button
+                                                                    key={a}
+                                                                    onClick={() => {
+                                                                        const next = selected
+                                                                            ? selectedNode.data.actions.filter((o: string) => o !== a)
+                                                                            : [...selectedNode.data.actions, a];
+                                                                        updateNodeData(selectedNode.id, { actions: next });
+                                                                    }}
+                                                                    style={{
+                                                                        border: `1px solid ${selected ? C.accent : C.line}`,
+                                                                        background: selected ? C.accent : C.paper,
+                                                                        color: selected ? "#fff" : C.inkSoft,
+                                                                        fontFamily: "'IBM Plex Sans'", fontWeight: 500, fontSize: 10.5,
+                                                                        borderRadius: 5, padding: "4px 9px", cursor: "pointer",
+                                                                    }}
+                                                                >
+                                                                    {a}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <GhostButton danger onClick={() => deleteNode(selectedNode.id)} style={{ marginTop: 10 }}>Delete node</GhostButton>
                             </>
                         )}
 
-                        {selectedNode && selectedNode.type === "required-intervention" && (
+                        {selectedNode && selectedNode.type === "required" && !Array.isArray(selectedNode.data.actions) && (
+                            <div className="text-[13.5px] font-sans" style={{ color: C.inkFaint }}>
+                                This node has outdated data. Save the case and reload to migrate it.
+                            </div>
+                        )}
+                        {selectedNode && selectedNode.type === "required" && Array.isArray(selectedNode.data.actions) && (
                             <>
-                                <div className="text-[11px] font-mono font-bold mb-2.5 uppercase" style={{ color: "#d97706" }}>Required Intervention node</div>
+                                <div className="text-[11px] font-mono font-bold mb-2.5 uppercase" style={{ color: "#d97706" }}>Required node</div>
+                                <div className="text-[10px] font-sans mb-2" style={{ color: C.inkFaint }}>
+                                    Groups combine with <strong>AND</strong>. Alternatives within a group combine with <strong>OR</strong>.
+                                </div>
                                 <div className="space-y-2 mb-2">
-                                    {selectedNode.data.required.map((r, i) => (
-                                        <div key={i} className="rounded border p-2" style={{ borderColor: C.line }}>
+                                    {selectedNode.data.actions.map((group, gi) => (
+                                        <div key={gi} className="rounded border p-2" style={{ borderColor: C.line }}>
                                             <div className="flex items-center justify-between mb-1.5">
-                                                <span className="text-[10px] font-mono font-semibold" style={{ color: C.inkFaint }}>#{i + 1}</span>
+                                                <span className="text-[10px] font-mono font-semibold" style={{ color: C.inkFaint }}>
+                                                    {gi > 0 && <span style={{ color: "#d97706" }}>AND </span>}Group {gi + 1}
+                                                </span>
                                                 <GhostButton danger onClick={() => {
-                                                    const next = selectedNode.data.required.filter((_, j) => j !== i);
-                                                    updateNodeData(selectedNode.id, { required: next });
+                                                    const next = selectedNode.data.actions.filter((_: any, j: number) => j !== gi);
+                                                    updateNodeData(selectedNode.id, { actions: next });
                                                 }}>×</GhostButton>
                                             </div>
-                                            <Field label="Category">
-                                                <select
-                                                    value={r.category}
-                                                    onChange={(e) => {
-                                                        const next = [...selectedNode.data.required];
-                                                        next[i] = { category: e.target.value, name: MANAGEMENT_LIBRARY[e.target.value][0] };
-                                                        updateNodeData(selectedNode.id, { required: next });
-                                                    }}
-                                                    style={inputStyle}
-                                                >
-                                                    {Object.keys(MANAGEMENT_LIBRARY).map((c) => (
-                                                        <option key={c}>{c}</option>
-                                                    ))}
-                                                </select>
-                                            </Field>
-                                            <Field label="Action">
-                                                <select
-                                                    value={r.name}
-                                                    onChange={(e) => {
-                                                        const next = [...selectedNode.data.required];
-                                                        next[i] = { ...next[i], name: e.target.value };
-                                                        updateNodeData(selectedNode.id, { required: next });
-                                                    }}
-                                                    style={inputStyle}
-                                                >
-                                                    {MANAGEMENT_LIBRARY[r.category].map((a) => (
-                                                        <option key={a}>{a}</option>
-                                                    ))}
-                                                </select>
-                                            </Field>
+                                            <div className="space-y-1">
+                                                {Object.entries(MANAGEMENT_LIBRARY).map(([cat, catActions]) => {
+                                                    const catSelected = catActions.filter((a: string) => (group.or ?? []).includes(a));
+                                                    const isOpen = expandedCats[`req-${gi}-${cat}`] ?? catSelected.length > 0;
+                                                    return (
+                                                        <div key={cat} className="rounded" style={{ border: `1px solid ${C.line}`, overflow: "hidden" }}>
+                                                            <button
+                                                                onClick={() => toggleCat(`req-${gi}-${cat}`)}
+                                                                style={{
+                                                                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                                                                    width: "100%", border: "none", background: catSelected.length > 0 ? "#d97706" : C.paperDeep,
+                                                                    padding: "4px 8px", cursor: "pointer",
+                                                                }}
+                                                            >
+                                                                <span className="text-[10px] font-mono font-semibold" style={{ color: catSelected.length > 0 ? "#fff" : C.inkSoft }}>
+                                                                    {cat} {catSelected.length > 0 && <span>({catSelected.length})</span>}
+                                                                </span>
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={catSelected.length > 0 ? "#fff" : C.inkFaint} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                                                    style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+                                                                >
+                                                                    <polyline points="6 9 12 15 18 9" />
+                                                                </svg>
+                                                            </button>
+                                                            {isOpen && (
+                                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 3, padding: "6px 8px" }}>
+                                                                    {catActions.map((a: string) => {
+                                                                        const selected = (group.or ?? []).includes(a);
+                                                                        return (
+                                                                            <button
+                                                                                key={a}
+                                                                                onClick={() => {
+                                                                                    const next = [...selectedNode.data.actions];
+                                                                                    next[gi] = { or: selected ? (group.or ?? []).filter((o: string) => o !== a) : [...(group.or ?? []), a] };
+                                                                                    updateNodeData(selectedNode.id, { actions: next });
+                                                                                }}
+                                                                                style={{
+                                                                                    border: `1px solid ${selected ? "#d97706" : C.line}`,
+                                                                                    background: selected ? "#d97706" : C.paper,
+                                                                                    color: selected ? "#fff" : C.inkSoft,
+                                                                                    fontFamily: "'IBM Plex Sans'", fontWeight: 500, fontSize: 10,
+                                                                                    borderRadius: 4, padding: "3px 7px", cursor: "pointer",
+                                                                                }}
+                                                                            >
+                                                                                {a}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                                 <GhostButton onClick={() => {
-                                    const cat = Object.keys(MANAGEMENT_LIBRARY)[0];
-                                    updateNodeData(selectedNode.id, { required: [...selectedNode.data.required, { category: cat, name: MANAGEMENT_LIBRARY[cat][0] }] });
-                                }} style={{ marginBottom: 6 }}>+ Add required action</GhostButton>
+                                    const first = MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0];
+                                    updateNodeData(selectedNode.id, { actions: [...selectedNode.data.actions, { or: [first] }] });
+                                }} style={{ marginBottom: 6 }}>+ Add required group (AND)</GhostButton>
                                 <GhostButton danger onClick={() => deleteNode(selectedNode.id)} style={{ marginTop: 2 }}>Delete node</GhostButton>
                             </>
                         )}
 
-                        {selectedNode && selectedNode.type === "outcome" && (
-                            <>
-                                <div className="text-[11px] font-mono font-bold mb-2.5 uppercase" style={{ color: C.inkSoft }}>Outcome node</div>
-                                <Field label="Classification">
-                                    <select value={selectedNode.data.outcomeType} onChange={(e) => setOutcomeType(selectedNode.id, e.target.value)} style={inputStyle}>
-                                        {OUTCOME_TYPES.map((o) => (
-                                            <option key={o.key} value={o.key}>{o.label}</option>
-                                        ))}
-                                    </select>
-                                </Field>
-                                {selectedNode.data.outcomeType === "unlock-event" ? (
-                                    <div className="space-y-1.5 mb-2">
-                                        <div className="text-[11px] font-mono font-semibold" style={{ color: C.inkFaint }}>Unlocked dispositions</div>
-                                        {MANAGEMENT_LIBRARY["Disposition"].map((d) => {
-                                            const checked = selectedNode.data.unlockedDispositions.includes(d);
-                                            return (
-                                                <label key={d} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: C.ink }}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked}
-                                                        onChange={() => {
-                                                            const next = checked
-                                                                ? selectedNode.data.unlockedDispositions.filter((x: string) => x !== d)
-                                                                : [...selectedNode.data.unlockedDispositions, d];
-                                                            updateNodeData(selectedNode.id, { unlockedDispositions: next });
-                                                        }}
-                                                        style={{ accentColor: C.accent }}
-                                                    />
-                                                    {d}
-                                                </label>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <>
-                                        <Field label="Narrative shown to student">
-                                            <TextArea value={selectedNode.data.narrative} onChange={(e) => updateNodeData(selectedNode.id, { narrative: e.target.value })} className="min-h-[60px]" />
-                                        </Field>
-                                        <Field label="New symptoms" hint="Comma-separated">
-                                            <TextArea value={selectedNode.data.newSymptoms} onChange={(e) => updateNodeData(selectedNode.id, { newSymptoms: e.target.value })} className="min-h-[46px]" />
-                                        </Field>
-                                        <div className="text-[11.5px] font-sans font-semibold uppercase my-2" style={{ color: C.inkSoft }}>Resulting vitals</div>
-                                        <div className="grid grid-cols-2 gap-1.5 mb-2.5">
-                                            {VITAL_DEFS.map((v) => (
-                                                <div key={v.key}>
-                                                    <div className="text-[10px] font-mono" style={{ color: C.inkFaint }}>{v.label}</div>
-                                                    <input
-                                                        value={selectedNode.data.vitalChanges[v.key]}
-                                                        onChange={(e) => updateNodeData(selectedNode.id, { vitalChanges: { ...selectedNode.data.vitalChanges, [v.key]: e.target.value } })}
-                                                        placeholder="—"
-                                                        className="w-full box-border rounded px-1.5 py-1 font-mono text-xs"
-                                                        style={{ border: `1px solid ${C.line}` }}
-                                                    />
-                                                </div>
+                        {selectedNode && selectedNode.type === "outcome" && (() => {
+                            const data = selectedNode.data;
+                            return (
+                                <>
+                                    <div className="text-[11px] font-mono font-bold mb-2.5 uppercase" style={{ color: C.inkSoft }}>Outcome node</div>
+                                    <Field label="Classification">
+                                        <select value={data.outcomeType} onChange={(e) => setOutcomeType(selectedNode.id, e.target.value)} style={inputStyle}>
+                                            {OUTCOME_TYPES.map((o) => (
+                                                <option key={o.key} value={o.key}>{o.label}</option>
                                             ))}
+                                        </select>
+                                    </Field>
+                                    {data.outcomeType === "unlockEvent" ? (
+                                        <div className="space-y-1.5 mb-2">
+                                            <div className="text-[11px] font-mono font-semibold" style={{ color: C.inkFaint }}>Unlocked dispositions</div>
+                                            {MANAGEMENT_LIBRARY["Disposition"].map((d) => {
+                                                const checked = data.unlockedDispositions.includes(d);
+                                                return (
+                                                    <label key={d} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: C.ink }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checked}
+                                                            onChange={() => {
+                                                                const next = checked
+                                                                    ? data.unlockedDispositions.filter((x: string) => x !== d)
+                                                                    : [...data.unlockedDispositions, d];
+                                                                updateNodeData(selectedNode.id, { unlockedDispositions: next });
+                                                            }}
+                                                            style={{ accentColor: C.accent }}
+                                                        />
+                                                        {d}
+                                                    </label>
+                                                );
+                                            })}
                                         </div>
-                                    </>
-                                )}
-                                <GhostButton danger onClick={() => deleteNode(selectedNode.id)}>Delete node</GhostButton>
-                            </>
-                        )}
+                                    ) : (
+                                        <>
+                                            <Field label="Narrative shown to student">
+                                                <TextArea value={data.narrative} onChange={(e) => updateNodeData(selectedNode.id, { narrative: e.target.value })} className="min-h-[60px]" />
+                                            </Field>
+                                            <Field label="New symptoms" hint="Comma-separated">
+                                                <TextArea value={data.newSymptoms} onChange={(e) => updateNodeData(selectedNode.id, { newSymptoms: e.target.value })} className="min-h-[46px]" />
+                                            </Field>
+                                            <div className="text-[11.5px] font-sans font-semibold uppercase my-2" style={{ color: C.inkSoft }}>Resulting vitals</div>
+                                            <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                                                {VITAL_DEFS.map((v) => (
+                                                    <div key={v.key}>
+                                                        <div className="text-[10px] font-mono" style={{ color: C.inkFaint }}>{v.label}</div>
+                                                        <input
+                                                            value={data.vitalChanges[v.key]}
+                                                            onChange={(e) => updateNodeData(selectedNode.id, { vitalChanges: { ...data.vitalChanges, [v.key]: e.target.value } })}
+                                                            placeholder="—"
+                                                            className="w-full box-border rounded px-1.5 py-1 font-mono text-xs"
+                                                            style={{ border: `1px solid ${C.line}` }}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
+                                    <GhostButton danger onClick={() => deleteNode(selectedNode.id)}>Delete node</GhostButton>
+                                </>
+                            );
+                        })()}
 
                         {selectedNode && selectedNode.type === "end" && (
                             <>

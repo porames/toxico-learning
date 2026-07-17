@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Activity, Stethoscope, FlaskConical, Pill, Heart, Bone, FileText, AlertTriangle, Clock } from "lucide-react";
-import type { CaseData, VitalSign } from "./types";
+import { Activity, Stethoscope, FlaskConical, Pill, Heart, Bone, FileText, AlertTriangle, Clock, Syringe, Play } from "lucide-react";
+import type { CaseData, VitalSign, PlayerEvent, OutcomeNodeData, Investigation } from "./types";
 import { VITAL_DEFS } from "./database";
 import { GameCanvas } from "./GameCanvas";
 import { VitalsPanel } from "./VitalsPanel";
@@ -13,6 +13,7 @@ import { InvestigationsPanel } from "./InvestigationsPanel";
 import { ImagingPanel } from "./ImagingPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { ManagementPanel } from "./ManagementPanel";
+import { getOutgoingNodes } from "./utils";
 
 type ActionTab = "vitals" | "history" | "exam" | "investigations" | "imaging" | "management";
 
@@ -30,6 +31,7 @@ const TABS: { key: ActionTab; label: string; icon: typeof Heart }[] = [
 /* ------------------------------------------------------------------ */
 
 const GAME_DURATION_MINUTES = 30;
+const TOTAL_GAME_SECONDS = GAME_DURATION_MINUTES * 60;
 
 /* ------------------------------------------------------------------ */
 /*  Main PlayCase component                                            */
@@ -46,22 +48,37 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const [examinedSystems, setExaminedSystems] = useState<Set<string>>(new Set());
     const [requestedTests, setRequestedTests] = useState<Set<string>>(new Set());
     const [selectedInterventions, setSelectedInterventions] = useState<Set<string>>(new Set());
+    const [requiredActions, setRequiredActions] = useState<string[][] | null>(null);
+    const [imagingResult, setImagingResult] = useState<Investigation | null>(null);
+    const [outcomeModal, setOutcomeModal] = useState<OutcomeNodeData | null>(null);
+    const [gameOverReason, setGameOverReason] = useState<string | null>(null);
     const [minutes, setMinutes] = useState(GAME_DURATION_MINUTES);
     const [seconds, setSeconds] = useState(0);
     const [gameOver, setGameOver] = useState(false);
     const [gameStarted, setGameStarted] = useState(false);
     const [elapsed, setElapsed] = useState(0);
+    const [playerEvents, setPlayerEvents] = useState<PlayerEvent[]>([]);
+    const [health, setHealth] = useState(100);
+    const elapsedRef = useRef(elapsed);
+    elapsedRef.current = elapsed;
+
+    const recordEvent = useCallback((event: PlayerEvent) => {
+        setPlayerEvents((prev) => [...prev, event]);
+    }, []);
 
     // Timer
     useEffect(() => {
         if (!gameStarted || gameOver) return;
         const interval = setInterval(() => {
             setElapsed((e) => e + 1);
+            setHealth((h) => Math.max(0, h - 100 / TOTAL_GAME_SECONDS));
             setSeconds((s) => {
                 if (s === 0) {
                     setMinutes((m) => {
                         if (m === 0) {
                             setGameOver(true);
+                            setGameOverReason("Time has expired.");
+                            recordEvent({ kind: "game_over", timestamp: elapsedRef.current, reason: "time_expired" });
                             return 0;
                         }
                         return m - 1;
@@ -72,7 +89,15 @@ export default function PlayCase({ caseId }: { caseId: string }) {
             });
         }, 1000);
         return () => clearInterval(interval);
-    }, [gameStarted, gameOver]);
+    }, [gameStarted, gameOver, recordEvent]);
+
+    // Health reaches 0 → game over
+    useEffect(() => {
+        if (!gameStarted || gameOver || health > 0) return;
+        setGameOver(true);
+        setGameOverReason("Patient's health has reached zero.");
+        recordEvent({ kind: "game_over", timestamp: elapsed, reason: "health_depleted" });
+    }, [health, gameStarted, gameOver, elapsed, recordEvent]);
 
     // Fetch
     useEffect(() => {
@@ -81,6 +106,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 const snap = await getDoc(doc(db, "simulations", caseId));
                 if (snap.exists()) {
                     setCaseData(snap.data() as CaseData);
+                    console.log(snap.data())
                 } else {
                     setError("Case not found.");
                 }
@@ -92,34 +118,148 @@ export default function PlayCase({ caseId }: { caseId: string }) {
         })();
     }, [caseId]);
 
-    const startGame = useCallback(() => setGameStarted(true), []);
+    useEffect(() => {
+        if (!caseData) return;
+        const graph = caseData.managementGraph;
+        const startNode = graph.nodes.find(n => n.type === "start");
+        if (startNode) {
+            const outgoing = getOutgoingNodes(graph, startNode.id);
+            const requiredNode = outgoing.find(n => n.type === "required");
+            if (requiredNode?.data?.actions) {
+                setRequiredActions(requiredNode.data.actions.map((g: any) => g.or ?? g));
+            }
+        }
+    }, [caseData]);
 
-    const requestVitals = useCallback(() => setVitalsRequested(true), []);
+    const startGame = useCallback(() => {
+        setGameStarted(true);
+        setHealth(100);
+        recordEvent({ kind: "game_start", timestamp: elapsed });
+    }, [recordEvent, elapsed]);
+
+    const requestVitals = useCallback(() => {
+        setVitalsRequested(true);
+        recordEvent({ kind: "vitals_requested", timestamp: elapsed });
+    }, [recordEvent, elapsed]);
 
     const requestExam = useCallback((sys: string) => {
         setExaminedSystems((prev) => new Set(prev).add(sys));
-    }, []);
+        recordEvent({ kind: "exam_performed", timestamp: elapsed, system: sys });
+    }, [recordEvent, elapsed]);
 
-    const requestBundle = useCallback((testNames: string[], cost: number) => {
+    const requestBundle = useCallback((testNames: string[], cost: number, bundleName?: string) => {
         setRequestedTests((prev) => {
             const next = new Set(prev);
             testNames.forEach((n) => next.add(n));
             return next;
         });
+        recordEvent({ kind: "test_ordered", timestamp: elapsed, name: bundleName ?? testNames[0] });
+        setElapsed((e) => e + cost);
+        setHealth((h) => Math.max(0, h - (cost / TOTAL_GAME_SECONDS) * 100));
         const total = minutes * 60 + seconds - cost;
         if (total <= 0) {
             setGameOver(true);
+            setGameOverReason("Time has expired.");
             setMinutes(0);
             setSeconds(0);
         } else {
             setMinutes(Math.floor(total / 60));
             setSeconds(total % 60);
         }
-    }, [minutes, seconds]);
+    }, [minutes, seconds, recordEvent, elapsed]);
 
     const applyIntervention = useCallback((name: string) => {
-        setSelectedInterventions((prev) => new Set(prev).add(name));
-    }, []);
+        const nextSelected = new Set(selectedInterventions);
+        nextSelected.add(name);
+        setSelectedInterventions(nextSelected);
+        recordEvent({ kind: "intervention_applied", timestamp: elapsed, name });
+
+        if (requiredActions) {
+            const allFulfilled = requiredActions.every((group) =>
+                group.some((action) => nextSelected.has(action))
+            );
+            if (allFulfilled) {
+                setGameOver(true);
+                setGameOverReason("All required interventions completed.");
+                recordEvent({ kind: "game_over", timestamp: elapsed, reason: "all_required_done" });
+            }
+        }
+
+        // reward if this intervention is a required action
+        const isRequired = requiredActions?.some((group) => group.includes(name));
+        if (isRequired) {
+            const rewardNarrative = `"${name}" is the correct intervention. The patient is responding well.`;
+            const rewardData: OutcomeNodeData = {
+                outcomeType: "improved",
+                narrative: rewardNarrative,
+                newSymptoms: "",
+                vitalChanges: {},
+            };
+            setOutcomeModal(rewardData);
+            recordEvent({ kind: "outcome", timestamp: elapsed, outcomeType: "improved" });
+            setHealth((h) => Math.min(100, h + 25));
+        }
+
+        if (caseData) {
+            const graph = caseData.managementGraph;
+            const startNode = graph.nodes.find(n => n.type === "start");
+            if (startNode) {
+                const outgoing = getOutgoingNodes(graph, startNode.id);
+                const match = outgoing.find(n => n.type === "intervention" && (n.data as any).actions?.includes(name));
+                if (match) {
+                    const outcomeNode = getOutgoingNodes(graph, match.id).find(n => n.type === "outcome");
+                    console.log(outcomeNode)
+                    if (outcomeNode) {
+                        const data = outcomeNode.data;
+                        const outcomeType = data.outcomeType;
+                        setOutcomeModal(data);
+                        recordEvent({ kind: "outcome", timestamp: elapsed, outcomeType: data.outcomeType });
+                        if (outcomeType !== "unlockEvent") {
+                            if (outcomeType === "deteriorated") {
+                                setHealth(health - 30);
+                            }
+                            else if (outcomeType === "critical") {
+                                setHealth(health - 70);
+                            }
+                            else if (outcomeType === "improved") {
+                                if (health + 10 < 100) {
+                                    setHealth(health + 10);
+                                }
+                                else {
+                                    setHealth(100)
+                                }
+                            }
+                            setCaseData((prev) => {
+                                if (!prev) return prev;
+                                const merged = { ...prev.vitals };
+                                for (const [key, val] of Object.entries(data.vitalChanges)) {
+                                    if (val) {
+                                        merged[key] = { value: val as string, abnormal: true };
+                                    }
+                                }
+                                return { ...prev, vitals: merged };
+                            });
+                        }
+                    }
+                } else {
+                    // intervention not in graph — fall back to deteriorated
+                    console.log("intervention not in graph")
+                    if (!isRequired) {
+                        const fallbackData: OutcomeNodeData = {
+                            outcomeType: "deteriorated",
+                            narrative: `"${name}" is not an appropriate intervention for this case.`,
+                            newSymptoms: "",
+                            vitalChanges: {},
+                        };
+                        setHealth((h) => Math.max(0, h - 30));
+                        setOutcomeModal(fallbackData);
+                        recordEvent({ kind: "outcome", timestamp: elapsed, outcomeType: "deteriorated" });
+                    }
+
+                }
+            }
+        }
+    }, [recordEvent, caseData, elapsed, requiredActions, selectedInterventions]);
 
     const vitalRandCache = useRef<Map<string, string>>(new Map()).current;
 
@@ -208,17 +348,73 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 />
             </div>
 
-            {/* Elapsed timer — always visible */}
+            {/* Elapsed timer + health bar — always visible */}
             <div className="fixed top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
                 <span className="inline-flex items-center gap-1.5 text-sm font-mono font-semibold text-white bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg">
                     <Clock size={14} />
                     {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
                 </span>
+                <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full px-3 py-1.5 shadow-lg">
+                    <div className="w-20 h-2 rounded-full bg-white/20 overflow-hidden">
+                        <div
+                            className="h-full rounded-full transition-all duration-1000"
+                            style={{
+                                width: `${health}%`,
+                                background: health > 50
+                                    ? "#22c55e"
+                                    : health > 25
+                                        ? "#eab308"
+                                        : "#ef4444",
+                            }}
+                        />
+                    </div>
+                    <span className="text-xs font-semibold text-white">{Math.round(health)}%</span>
+                </div>
                 {gameTimeUp && (
                     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-600 bg-rose-100/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg">
                         Time is up!
                     </span>
                 )}
+            </div>
+            {/* Event log */}
+            <div className="fixed top-6 left-6 z-10 flex flex-col gap-2 w-[320px] max-h-[40vh] overflow-y-auto bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-ink-900/8 p-3">
+                <p className="text-[11px] font-semibold text-ink-400 uppercase tracking-wide mb-1">Event Log</p>
+                {playerEvents.length === 0 && (
+                    <p className="text-xs text-ink-300 italic">No events yet</p>
+                )}
+                <div className="flex flex-col gap-1.5">
+                    {playerEvents.map((ev, i) => {
+                        const time = `${String(Math.floor(ev.timestamp / 60)).padStart(2, "0")}:${String(ev.timestamp % 60).padStart(2, "0")}`;
+                        const icon = ev.kind === "game_start" ? <Play size={12} /> :
+                            ev.kind === "vitals_requested" ? <Activity size={12} /> :
+                                ev.kind === "exam_performed" ? <Stethoscope size={12} /> :
+                                    ev.kind === "test_ordered" ? <FlaskConical size={12} /> :
+                                        ev.kind === "intervention_applied" ? <Syringe size={12} /> :
+                                            ev.kind === "outcome" ? <AlertTriangle size={12} /> :
+                                                ev.kind === "game_over" ? <Clock size={12} /> : null;
+                        const label = ev.kind === "game_start" ? "Game started" :
+                            ev.kind === "vitals_requested" ? "Vitals requested" :
+                                ev.kind === "exam_performed" ? `Exam: ${ev.system}` :
+                                    ev.kind === "test_ordered" ? `Test: ${ev.name}` :
+                                        ev.kind === "intervention_applied" ? `Rx: ${ev.name}` :
+                                            ev.kind === "outcome" ? `Outcome: ${ev.outcomeType}` :
+                                                ev.kind === "game_over" ? "Time's up!" : ev.kind;
+                        const outcomeBg: Record<string, string> = {
+                            improved: "bg-emerald-100",
+                            deteriorated: "bg-rose-100",
+                            critical: "bg-red-100",
+                            unchanged: "bg-ink-100",
+                        };
+                        const outcomeBgClass = ev.kind === "outcome" ? outcomeBg[ev.outcomeType] ?? "bg-ink-100" : "";
+                        return (
+                            <div key={i} className={`flex items-center gap-2 text-xs rounded px-1.5 py-1 ${outcomeBgClass}`}>
+                                <span className="text-ink-300 font-mono w-10 shrink-0">{time}</span>
+                                <span className="shrink-0">{icon}</span>
+                                <span className="truncate">{label}</span>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
             {/* Active panel content */}
             <div className="fixed bottom-6 left-6 z-10 flex flex-col gap-2 max-w-[420px] max-h-[55vh] overflow-y-auto bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-ink-900/8 p-4">
@@ -251,15 +447,110 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                         caseInvestigations={caseData.investigations}
                         requestedTests={requestedTests}
                         onRequestBundle={requestBundle}
+                        onViewResult={setImagingResult}
                     />
                 )}
                 {activeTab === "management" && (
                     <ManagementPanel
+                        caseData={caseData}
                         selectedInterventions={selectedInterventions}
                         onSelectIntervention={applyIntervention}
                     />
                 )}
             </div>
+            {/* Game over modal */}
+            {gameOverReason && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-8 border border-ink-900/8 text-center">
+
+                        <h2 className="text-2xl font-bold text-ink-900 mb-2">Game Over</h2>
+                        <p className="text-sm text-ink-600 mb-6">{gameOverReason}</p>
+                        <p className="text-xs text-ink-400">Elapsed time: {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Imaging result modal */}
+            {(() => {
+                const img = imagingResult;
+                if (!img || img.kind !== "imaging") return null;
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-ink-900/8">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-lg font-semibold text-ink-900">{img.name}</h2>
+                                <button onClick={() => setImagingResult(null)} className="text-ink-400 hover:text-ink-700 text-xl leading-none cursor-pointer">&times;</button>
+                            </div>
+                            <p className="text-sm text-ink-700 mb-3 leading-relaxed">{img.report || "No report entered."}</p>
+                            {img.imageUrl && (
+                                <img src={img.imageUrl} alt={img.name} className="max-w-full max-h-72 rounded border border-ink-900/8" />
+                            )}
+                            <button
+                                onClick={() => setImagingResult(null)}
+                                className="mt-4 w-full rounded-lg bg-iris-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-iris-700 transition-colors cursor-pointer"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* Outcome modal */}
+            {outcomeModal && (() => {
+                const colors: Record<string, { title: string; heading: string; bg: string; hover: string; label: string }> = {
+                    improved: { title: "Condition Improved", heading: "text-emerald-700", bg: "bg-emerald-600", hover: "hover:bg-emerald-700", label: "text-emerald-600" },
+                    deteriorated: { title: "Condition Deteriorated", heading: "text-rose-700", bg: "bg-rose-600", hover: "hover:bg-rose-700", label: "text-rose-600" },
+                    critical: { title: "Critical Condition", heading: "text-red-700", bg: "bg-red-600", hover: "hover:bg-red-700", label: "text-red-600" },
+                    unchanged: { title: "No Change", heading: "text-ink-600", bg: "bg-ink-500", hover: "hover:bg-ink-600", label: "text-ink-500" },
+                };
+                const c = colors[outcomeModal.outcomeType] ?? colors.deteriorated;
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 border border-ink-900/8">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className={`text-lg font-semibold ${c.heading}`}>{c.title}</h2>
+                                <button onClick={() => setOutcomeModal(null)} className="text-ink-400 hover:text-ink-700 text-xl leading-none cursor-pointer">&times;</button>
+                            </div>
+                            {outcomeModal.outcomeType !== "unlockEvent" && (
+                                <>
+                                    {outcomeModal.narrative && (
+                                        <p className="text-sm text-ink-700 mb-3 leading-relaxed">{outcomeModal.narrative}</p>
+                                    )}
+                                    {outcomeModal.newSymptoms && (
+                                        <div className="mb-3">
+                                            <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-1">New Symptoms</p>
+                                            <p className="text-sm text-ink-700">{outcomeModal.newSymptoms}</p>
+                                        </div>
+                                    )}
+                                    {Object.keys(outcomeModal.vitalChanges).some(k => outcomeModal.vitalChanges[k]) && (
+                                        <div>
+                                            <p className="text-xs font-semibold text-ink-500 uppercase tracking-wide mb-1">Vital Changes</p>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                                {Object.entries(outcomeModal.vitalChanges).map(([key, val]) =>
+                                                    val ? (
+                                                        <div key={key} className="flex items-center gap-1.5">
+                                                            <span className="font-mono text-xs text-ink-400 uppercase">{key}</span>
+                                                            <span className={`font-semibold ${c.label}`}>{val}</span>
+                                                        </div>
+                                                    ) : null
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                            <button
+                                onClick={() => setOutcomeModal(null)}
+                                className={`mt-4 w-full rounded-lg ${c.bg} px-4 py-2.5 text-sm font-semibold text-white ${c.hover} transition-colors cursor-pointer`}
+                            >
+                                Continue
+                            </button>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Floating action panel — bottom-right */}
             <div className="fixed bottom-6 right-6 z-10 flex flex-col gap-2 max-w-[420px]">
                 {/* Tab buttons */}

@@ -37,7 +37,7 @@ export function InvestigationsPanel({
 }: {
     caseInvestigations: Investigation[];
     requestedTests: Set<string>;
-    onRequestBundle: (testNames: string[], cost: number) => void;
+    onRequestBundle: (testNames: string[], cost: number, bundleName?: string) => void;
 }) {
     const [showOther, setShowOther] = useState<boolean>(false);
     const normalCache = useRef<Map<string, string>>(new Map()).current;
@@ -110,7 +110,7 @@ export function InvestigationsPanel({
                     return (
                         <div key={cat} className="rounded-lg border border-ink-900/8 bg-white overflow-hidden">
                             <button
-                                onClick={() => !allRequested && onRequestBundle(tests.map((t) => t.name), cost)}
+                                onClick={() => !allRequested && onRequestBundle(tests.map((t) => t.name), cost, cat)}
                                 disabled={allRequested}
                                 className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-semibold transition-colors cursor-pointer ${allRequested
                                     ? "bg-iris-50 text-iris-700"
