@@ -320,7 +320,7 @@ function StepInvestigations({ data, update, caseId }: StepProps & { caseId: stri
         reader.onload = async () => {
             const imageData = reader.result as string;
             try {
-                const res = await fetch("http://127.0.0.1:5001/rama-toxico-edu/us-central1/imageUpload", {
+                const res = await fetch("https://us-central1-rama-toxico-edu.cloudfunctions.net/imageUpload", {
                     method: "POST",
                     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
                     body: JSON.stringify({ imageData, caseId, investigationId: id }),

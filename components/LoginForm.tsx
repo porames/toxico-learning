@@ -37,7 +37,7 @@ export default function LoginForm() {
     setLoading("email");
     try {
       if (isSignUp) {
-        const res = await fetch("http://127.0.0.1:5001/rama-toxico-edu/us-central1/signUp", {
+        const res = await fetch("https://us-central1-rama-toxico-edu.cloudfunctions.net/signUp", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

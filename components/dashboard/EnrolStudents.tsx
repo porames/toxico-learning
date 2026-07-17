@@ -31,7 +31,7 @@ export default function EnrolStudents({ classId }: { classId: string }) {
                 const token = await user.getIdToken();
 
                 const res = await fetch(
-                    "http://127.0.0.1:5001/rama-toxico-edu/us-central1/getStudents",
+                    "https://us-central1-rama-toxico-edu.cloudfunctions.net/getStudents",
                     {
                         method: "POST",
                         headers: {
@@ -77,7 +77,7 @@ export default function EnrolStudents({ classId }: { classId: string }) {
             const token = await user.getIdToken();
 
             const res = await fetch(
-                "http://127.0.0.1:5001/rama-toxico-edu/us-central1/enrolStudents",
+                "https://us-central1-rama-toxico-edu.cloudfunctions.net/enrolStudents",
                 {
                     method: "POST",
                     headers: {
