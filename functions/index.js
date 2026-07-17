@@ -1,11 +1,14 @@
 import { onRequest } from "firebase-functions/v2/https";
 import admin from "firebase-admin";
 import { initializeApp, cert } from "firebase-admin/app";
+import sharp from "sharp";
 
 const app = initializeApp({
     credential: cert("../secret/serviceAccount.json"),
 });
 
+const storage = admin.storage();
+const db = admin.firestore();
 
 const auth = admin.auth();
 
@@ -271,5 +274,92 @@ export const createUser = onRequest(async (req, res) => {
         res.status(500).json({
             error: "Internal server error",
         });
+    }
+});
+
+export const imageUpload = onRequest(async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith("Bearer ")) {
+            res.status(401).json({ error: "Unauthorized" });
+            return;
+        }
+        const idToken = authHeader.split("Bearer ")[1];
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const userDoc = await db
+            .collection("users")
+            .where("authId", "==", decodedToken.uid)
+            .get();
+        const userData = userDoc.docs[0].data();
+        if (userDoc.empty || userData.role !== "admin") {
+            res.status(403).json({ error: "Forbidden" });
+            return;
+        }
+
+        const { imageData, caseId, investigationId } = req.body;
+        if (!imageData || !caseId || !investigationId) {
+            res.status(400).json({ error: "Missing required fields: imageData, caseId, investigationId" });
+            return;
+        }
+
+        // validate and extract base64
+        const match = imageData.match(/^data:image\/(\w+);base64,(.+)$/);
+        if (!match) {
+            res.status(400).json({ error: "Invalid image data. Must be a base64-encoded data URL." });
+            return;
+        }
+
+        const format = match[1];
+        const allowedFormats = ["jpeg", "jpg", "png", "webp", "gif"];
+        if (!allowedFormats.includes(format)) {
+            res.status(400).json({ error: `Unsupported image format: ${format}. Allowed: ${allowedFormats.join(", ")}` });
+            return;
+        }
+
+        const buffer = Buffer.from(match[2], "base64");
+
+        // if larger than 1MB, compress
+        let uploadBuffer = buffer;
+        if (buffer.length > 1024 * 1024) {
+            uploadBuffer = await sharp(buffer)
+                .resize({ width: 1920, withoutEnlargement: true })
+                .jpeg({ quality: 80 })
+                .toBuffer();
+        }
+
+        const ext = format === "jpeg" ? "jpg" : format;
+        const fileName = `simulation/${crypto.randomUUID()}.${ext}`;
+        const bucket = storage.bucket();
+        const file = bucket.file(fileName);
+
+        await file.save(uploadBuffer, {
+            metadata: { contentType: `image/${format === "jpg" ? "jpeg" : format}` },
+        });
+
+        // make publicly readable and get download URL
+        await file.makePublic();
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+
+        // update case document in Firestore
+        const caseRef = db.collection("simulations").doc(caseId);
+        const caseSnap = await caseRef.get();
+        if (!caseSnap.exists) {
+            res.status(404).json({ error: "Case not found" });
+            return;
+        }
+
+        const caseData = caseSnap.data();
+        const investigations = (caseData.investigations || []).map((inv) => {
+            if (inv.id === investigationId) {
+                return { ...inv, imageUrl: publicUrl };
+            }
+            return inv;
+        });
+        await caseRef.update({ investigations });
+
+        res.status(200).json({ imageUrl: publicUrl });
+    } catch (err) {
+        console.error("imageUpload error:", err);
+        res.status(500).json({ error: err.message || "Internal server error" });
     }
 });

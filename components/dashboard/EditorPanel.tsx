@@ -19,7 +19,7 @@ const fieldClass =
 const labelClass = "mb-1.5 block text-[12.5px] font-medium text-ink-700";
 
 
-function defaultMaterialTitle(type: MaterialType) {
+export function defaultMaterialTitle(type: MaterialType) {
   switch (type) {
     case "youtube":
       return "New video";
@@ -77,13 +77,23 @@ export function ClassEditor({
   onEnrolStudents: () => void;
   onSelect: (selection: Selection) => void;
 }) {
+  const [saving, setSaving] = useState<boolean>(false);
   async function saveChanges() {
-    await updateDoc(
-      doc(db, "classes", cls.id),
-      {
-        name: cls.name,
-        code: cls.code,
-      })
+    setSaving(true);
+    try {
+      await updateDoc(
+        doc(db, "classes", cls.id),
+        {
+          name: cls.name,
+          code: cls.code,
+        })
+    }
+    catch (err) {
+      console.log(err);
+    }
+    finally {
+      setSaving(false);
+    }
   }
   return (
     <div className="mx-auto max-w-xl px-8 py-10">
@@ -111,16 +121,24 @@ export function ClassEditor({
       </div>
       <button
         type="button"
-        className=" mt-4 flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-sky-600"
+        disabled={saving}
+        className="mt-4 flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={() => saveChanges()}
       >
-        Save changes
+        {saving ? (
+          <>
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            Saving…
+          </>
+        ) : (
+          "Save changes"
+        )}
       </button>
 
       <div className="mt-8 flex items-center justify-between border-t border-ink-900/10 pt-6">
         <div>
           <p className="text-[13.5px] font-medium text-ink-900">
-            100 students enroled in this class
+            {cls.students ? cls.students.length : 0} students enroled in this class
           </p>
           <p className="text-[12.5px] text-ink-500">Manage students enrolment.</p>
         </div>
@@ -150,7 +168,7 @@ export function ClassEditor({
         </button>
       </div>
       <div className="mt-2 flex-row border-b border-ink-900/10 pt-6 space-y-4 pb-8 text-sm">
-        {cls.lectures.map((lec) => {
+        {cls.lectures && cls.lectures.map((lec) => {
           return (
             <div key={lec.id}>
               <button
@@ -202,10 +220,12 @@ export function LectureEditor({
   onDeleteMaterial: (materialId: string) => void;
 }) {
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
   useEffect(() => {
 
     setMaterials([]);
-    console.log("fetching materials")
+    setMaterialsLoading(true);
     async function loadLecture() {
       try {
         const snapshot = await getDocs(
@@ -217,10 +237,12 @@ export function LectureEditor({
           title: doc.data()?.title,
           value: doc.data()?.value
         }));
-        console.log(materialsData)
         setMaterials(materialsData);
       } catch (err) {
         console.log(err);
+      }
+      finally {
+        setMaterialsLoading(false);
       }
     }
     loadLecture();
@@ -259,7 +281,7 @@ export function LectureEditor({
   };
 
   async function saveChanges() {
-    console.log(lecture)
+    setSaving(true);
     try {
       await updateDoc(
         doc(db, "classes", classId, "lectures", lecture.id),
@@ -281,9 +303,11 @@ export function LectureEditor({
           );
         })
       );
-      console.log('saved!')
     } catch (err) {
       console.log(err);
+    }
+    finally {
+      setSaving(false);
     }
   }
 
@@ -293,10 +317,18 @@ export function LectureEditor({
         <p className="text-[12px] font-medium uppercase tracking-wider text-ink-300">Lecture</p>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-sky-600"
+          disabled={saving}
+          className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => saveChanges()}
         >
-          Save changes
+          {saving ? (
+            <>
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Saving…
+            </>
+          ) : (
+            "Save changes"
+          )}
         </button>
       </div>
       <div className="mt-4">
@@ -337,7 +369,15 @@ export function LectureEditor({
         </p>
 
         <div className="mt-4 space-y-3">
-          {materials.map((mat) => (
+          {materialsLoading ? (
+            <div className="flex items-center justify-center gap-2 py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-ink-900/10 border-t-iris-600" />
+              <span className="text-[13px] text-ink-500">Loading materials…</span>
+            </div>
+          ) : materials.length === 0 ? (
+            <p className="py-4 text-center text-[13px] text-ink-400">No materials yet.</p>
+          ) : null}
+          {!materialsLoading && materials.map((mat) => (
             <MaterialCard
               key={mat.id}
               material={mat}

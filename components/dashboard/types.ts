@@ -14,6 +14,7 @@ export interface Lecture {
   startTime: Date; // ISO datetime-local string
   endTime: Date; // ISO datetime-local string
   materials: Material[];
+
 }
 
 export interface ClassItem {
@@ -21,6 +22,7 @@ export interface ClassItem {
   name: string;
   code: string;
   lectures?: Lecture[];
+  students?: [];
 }
 
 export type Selection =

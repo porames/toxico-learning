@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
   sendPasswordResetEmail,
+  getAuth,
+  onAuthStateChanged
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getAuthErrorMessage } from "@/lib/authErrors";
 import { useRouter } from "next/navigation";
-import GoogleIcon from "./GoogleIcon";
 
 
 type Mode = "sign-in" | "sign-up";
@@ -26,6 +27,7 @@ export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
   const isSignUp = mode === "sign-up";
   const router = useRouter();
   async function handleEmailSubmit(e: FormEvent) {
@@ -79,6 +81,22 @@ export default function LoginForm() {
     } catch (err: any) {
       setError(getAuthErrorMessage(err?.code ?? ""));
     }
+  }
+  useEffect(() => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        router.replace("/classes");
+      } else {
+        setChecking(false); // no user, safe to show login form
+      }
+    });
+    return () => unsubscribe();
+  }, [router]);
+  if (checking) {
+    return (
+      <h1>Loading ...</h1>
+    )
   }
 
   return (

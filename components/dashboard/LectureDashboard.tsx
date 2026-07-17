@@ -4,12 +4,11 @@ import { useMemo, useState, useEffect } from "react";
 import type { ClassItem, Lecture, Material, MaterialType, Selection } from "./types";
 import { initialClasses } from "./mockData";
 import TreeView from "./TreeView";
-import { ClassEditor, EmptyState, LectureEditor } from "./EditorPanel";
+import { ClassEditor, EmptyState, LectureEditor, defaultMaterialTitle } from "./EditorPanel";
 import { Menu, Plus, UserRound } from 'lucide-react';
 import ManageStudents from "./ManageStudents";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, addDoc, serverTimestamp, getDoc } from "firebase/firestore";
-import { title } from "process";
 import EnrolStudents from "./EnrolStudents";
 
 function makeId() {
@@ -38,25 +37,31 @@ export default function LectureDashboard() {
   const [classes, setClasses] = useState<ClassItem[] | []>([]);
   const [selection, setSelection] = useState<Selection>(null);
   const [showMenu, setShowMenu] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [lectureLoading, setLectureLoading] = useState<boolean>(false);
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(initialClasses.map((c) => c.id))
   );
   useEffect(() => {
     async function loadClasses() {
+      setLoading(true);
       try {
         const snapshot = await getDocs(collection(db, "classes"));
         const classesData = snapshot.docs.map(doc => ({
           id: doc.id,
           name: doc.data()["name"],
           code: doc.data()["code"],
-          lectures: undefined
+          lectures: undefined,
+          students: doc.data()["enroledStudents"]
         }));
         setClasses(classesData);
       }
       catch (err) {
         console.log(err);
       }
-
+      finally {
+        setLoading(false);
+      }
     }
     loadClasses();
   }, []);
@@ -144,7 +149,7 @@ export default function LectureDashboard() {
     });
     const newLecture: Lecture = { id: snapshot.id, title: "New lecture", ...time, materials: [] };
     setClasses((prev) =>
-      prev.map((c) => (c.id === classId ? { ...c, lectures: [...c.lectures, newLecture] } : c))
+      prev.map((c) => (c.id === classId ? { ...c, lectures: [...(c.lectures ?? []), newLecture] } : c))
     );
     expandIds([classId, snapshot.id]);
     setSelection({ level: "lecture", classId, lectureId: snapshot.id });
@@ -160,42 +165,47 @@ export default function LectureDashboard() {
           ? c
           : {
             ...c,
-            lectures: c.lectures.map((l) => (l.id === lectureId ? { ...l, ...patch } : l)),
+            lectures: (c.lectures ?? []).map((l) => (l.id === lectureId ? { ...l, ...patch } : l)),
           }
-      )
-    );
-  };
-
-  async function loadLecture(selection_data: Selection) {
-    if (selection_data && selection_data.level == "class") {
-      const snapshot = await getDocs(collection(db, "classes", selection_data.classId, "lectures"));
-      const loadedLecs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        title: doc.data()["title"],
-        startTime: doc.data()["startTime"].toDate(),
-        endTime: doc.data()["endTime"].toDate(),
-        materials: []
-      }));
-      console.log(loadedLecs);
-      setClasses(prevClasses =>
-        prevClasses.map(cls =>
-          cls.id === selection_data.classId
-            ? { ...cls, lectures: loadedLecs }
-            : cls
         )
       );
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        next.has(selection_data.classId) ? next.delete(selection_data.classId) : next.add(selection_data.classId);
-        return next;
-      });
+    };
+  
+    async function loadLecture(selection_data: Selection) {
+    if (selection_data && selection_data.level == "class") {
+      setLectureLoading(true);
+      try {
+        const snapshot = await getDocs(collection(db, "classes", selection_data.classId, "lectures"));
+        const loadedLecs = snapshot.docs.map(doc => ({
+          id: doc.id,
+          title: doc.data()["title"],
+          startTime: doc.data()["startTime"].toDate(),
+          endTime: doc.data()["endTime"].toDate(),
+          materials: []
+        }));
+        setClasses(prevClasses =>
+          prevClasses.map(cls =>
+            cls.id === selection_data.classId
+              ? { ...cls, lectures: loadedLecs }
+              : cls
+          )
+        );
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          next.has(selection_data.classId) ? next.delete(selection_data.classId) : next.add(selection_data.classId);
+          return next;
+        });
+      }
+      finally {
+        setLectureLoading(false);
+      }
     }
     setSelection(selection_data);
   }
 
   const deleteLecture = (classId: string, lectureId: string) => {
     setClasses((prev) =>
-      prev.map((c) => (c.id === classId ? { ...c, lectures: c.lectures.filter((l) => l.id !== lectureId) } : c))
+      prev.map((c) => (c.id === classId ? { ...c, lectures: (c.lectures ?? []).filter((l) => l.id !== lectureId) } : c))
     );
     setSelection((sel) =>
       sel && "lectureId" in sel && sel.lectureId === lectureId ? { level: "class", classId } : sel
@@ -213,7 +223,7 @@ export default function LectureDashboard() {
           ? c
           : {
             ...c,
-            lectures: c.lectures.map((l) =>
+            lectures: (c.lectures ?? []).map((l) =>
               l.id === lectureId ? { ...l, materials: [...l.materials, newMaterial] } : l
             ),
           }
@@ -235,7 +245,7 @@ export default function LectureDashboard() {
           ? c
           : {
             ...c,
-            lectures: c.lectures.map((l) =>
+            lectures: (c.lectures ?? []).map((l) =>
               l.id !== lectureId
                 ? l
                 : { ...l, materials: l.materials.map((m) => (m.id === materialId ? { ...m, ...patch } : m)) }
@@ -252,7 +262,7 @@ export default function LectureDashboard() {
           ? c
           : {
             ...c,
-            lectures: c.lectures.map((l) =>
+            lectures: (c.lectures ?? []).map((l) =>
               l.id !== lectureId ? l : { ...l, materials: l.materials.filter((m) => m.id !== materialId) }
             ),
           }
@@ -267,12 +277,12 @@ export default function LectureDashboard() {
 
   // ---- Derived selection lookups ----
   const selectedClass = useMemo(
-    () => (selection ? classes.find((c) => c.id === selection.classId) ?? null : null),
+    () => (selection && "classId" in selection ? classes.find((c) => c.id === selection.classId) ?? null : null),
     [classes, selection]
   );
   const selectedLecture = useMemo(
     () =>
-      selection && "lectureId" in selection
+      ((selection && "lectureId" in selection) && (selectedClass && selectedClass.lectures))
         ? selectedClass?.lectures.find((l) => l.id === selection.lectureId) ?? null
         : null,
     [selectedClass, selection]
@@ -330,7 +340,15 @@ export default function LectureDashboard() {
         </aside>
 
         <main className="flex-1 overflow-y-auto">
-          {(!selectedClass && !selection) && <EmptyState hasClasses={classes.length > 0} onAddClass={addClass} />}
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-ink-900/10 border-t-iris-600" />
+                <span className="text-[13px] text-ink-500">Loading classes…</span>
+              </div>
+            </div>
+          ) : null}
+          {!loading && (!selectedClass && !selection) && <EmptyState hasClasses={classes.length > 0} onAddClass={addClass} />}
           {!selectedClass && selection?.level === "manage_students" && (
             <div className="mx-auto max-w-full px-4 py-10">
               <div className="mt-4 grid grid-row gap-3">
@@ -340,14 +358,23 @@ export default function LectureDashboard() {
             </div>
           )}
           {selectedClass && selection?.level === "class" && (
-            <ClassEditor
-              cls={selectedClass}
-              onSelect={loadLecture}
-              onRename={(patch) => renameClass(selectedClass.id, patch)}
-              onDelete={() => deleteClass(selectedClass.id)}
-              onAddLecture={() => addLecture(selectedClass.id)}
-              onEnrolStudents={() => setSelection({ level: "enrol_student", classId: selectedClass.id })}
-            />
+            lectureLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-ink-900/10 border-t-iris-600" />
+                  <span className="text-[13px] text-ink-500">Loading lectures…</span>
+                </div>
+              </div>
+            ) : (
+              <ClassEditor
+                cls={selectedClass}
+                onSelect={loadLecture}
+                onRename={(patch) => renameClass(selectedClass.id, patch)}
+                onDelete={() => deleteClass(selectedClass.id)}
+                onAddLecture={() => addLecture(selectedClass.id)}
+                onEnrolStudents={() => setSelection({ level: "enrol_student", classId: selectedClass.id })}
+              />
+            )
           )}
           {selectedClass && (selection?.level === "enrol_student") && (
             <EnrolStudents classId={selectedClass.id} />

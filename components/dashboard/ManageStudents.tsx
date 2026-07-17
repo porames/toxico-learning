@@ -5,14 +5,7 @@ import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { Pencil, Check, PlusCircle, Trash2 } from "lucide-react";
-interface Student {
-    id: string;
-    rama_id: string;
-    name: string;
-    email: string;
-    role: string;
-    year: string;
-}
+import type { Student } from "./types";
 
 const ROLE_LABELS: Record<string, string> = {
     student: "นศพ.",
@@ -222,7 +215,7 @@ function EditableStudentRow({
         setSaving(true);
         setError(null);
         try {
-            await updateDoc(doc(db, "users", student.id), {
+            await updateDoc(doc(db, "users", student.uid), {
                 rama_id: ramaId,
                 name,
                 email,
@@ -245,7 +238,7 @@ function EditableStudentRow({
                 setSelectedStudents(prev => [...prev, selection]);
                 setChecked(true);
             } else {
-                setSelectedStudents(prev => prev.filter(student => student.id !== selection.id));
+                    setSelectedStudents(prev => prev.filter(student => student.uid !== selection.uid));
                 setChecked(false);
             }
         }
@@ -270,7 +263,7 @@ function EditableStudentRow({
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify({ uid: student.id }),
+                    body: JSON.stringify({ uid: student.uid }),
                 }
             );
 
@@ -279,7 +272,7 @@ function EditableStudentRow({
                 throw new Error(body?.message || "Failed to delete student");
             }
 
-            onDeleted(student.id);
+            onDeleted(student.uid);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
             setConfirmingDelete(false);
@@ -381,7 +374,7 @@ function EditableStudentRow({
             <td className="px-3 py-1 whitespace-nowrap">{student.name}</td>
             <td className="px-3 py-1 whitespace-nowrap text-gray-500">{student.email}</td>
             <td className="px-3 py-1 whitespace-nowrap text-gray-500">
-                {ROLE_LABELS[student.role] ?? student.role}
+                {ROLE_LABELS[student.role ?? ""] ?? student.role}
             </td>
             <td className="px-3 py-1 whitespace-nowrap">
                 {YEAR_LABELS[student.year] ?? student.year}
@@ -445,12 +438,12 @@ export default function ManageStudents({
             const loaded = snapshot.docs.map((doc) => {
                 const data = doc.data();
                 return {
-                    id: doc.id,
+                    uid: doc.id,
                     rama_id: data.rama_id,
                     name: data.name,
                     email: data.email,
-                    role: data.role,
-                    year: data.year,
+                    role: data.role ?? "",
+                    year: data.year ?? "",
                 } as Student;
             });
             setStudents(loaded);
@@ -465,7 +458,7 @@ export default function ManageStudents({
     }, []);
 
     function handleDeleted(id: string) {
-        setStudents((prev) => prev?.filter((s) => s.id !== id));
+        setStudents((prev) => prev?.filter((s) => s.uid !== id));
     }
 
     const isLoading = students === undefined;
@@ -523,7 +516,7 @@ export default function ManageStudents({
                             enableSelection ? (
                                 students!.map((student, idx) => (
                                     <EditableStudentRow
-                                        key={student.id}
+                                        key={student.uid}
                                         student={student}
                                         bgColor={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
                                         onUpdated={loadUsers}
@@ -535,7 +528,7 @@ export default function ManageStudents({
                             ) : (
                                 students!.map((student, idx) => (
                                     <EditableStudentRow
-                                        key={student.id}
+                                        key={student.uid}
                                         student={student}
                                         bgColor={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
                                         onUpdated={loadUsers}
