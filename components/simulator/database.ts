@@ -145,6 +145,7 @@ export const MANAGEMENT_LIBRARY: Record<string, string[]> = {
     Respiratory: ["Albuterol nebulizer", "Ipratropium nebulizer", "Methylprednisolone IV"],
     "Anticoagulation / Reversal": ["Heparin infusion", "Vitamin K IV", "FFP transfusion", "PRBC transfusion"],
     Procedures: ["Chest tube insertion", "Central line placement", "Lumbar puncture", "Foley catheter"],
+    "Electrolyte & Metabolic": ["Sodium bicarbonate IV", "Calcium gluconate 10% IV", "Regular insulin IV", "Dextrose 50% IV"],
     Disposition: ["Admit to floor", "Admit to ICU", "Transfer to OR", "Discharge home", "Transfer to another facility"],
 };
 

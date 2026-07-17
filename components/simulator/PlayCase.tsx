@@ -5,7 +5,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Activity, Stethoscope, FlaskConical, Pill, Heart, Bone, FileText, AlertTriangle, Clock, Syringe, Play } from "lucide-react";
 import type { CaseData, VitalSign, PlayerEvent, OutcomeNodeData, Investigation } from "./types";
-import { VITAL_DEFS } from "./database";
+import { VITAL_DEFS, DISEASES_DB } from "./database";
 import { GameCanvas } from "./GameCanvas";
 import { VitalsPanel } from "./VitalsPanel";
 import { ExamPanel } from "./ExamPanel";
@@ -51,7 +51,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const [requiredActions, setRequiredActions] = useState<string[][] | null>(null);
     const [imagingResult, setImagingResult] = useState<Investigation | null>(null);
     const [outcomeModal, setOutcomeModal] = useState<OutcomeNodeData | null>(null);
-    const [gameOverReason, setGameOverReason] = useState<string | null>(null);
+    const [gameOverReason, setGameOverReason] = useState<{event: "won" | "patientDied" | "timeOut", description: string} | null>(null);
     const [minutes, setMinutes] = useState(GAME_DURATION_MINUTES);
     const [seconds, setSeconds] = useState(0);
     const [gameOver, setGameOver] = useState(false);
@@ -59,6 +59,9 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const [elapsed, setElapsed] = useState(0);
     const [playerEvents, setPlayerEvents] = useState<PlayerEvent[]>([]);
     const [health, setHealth] = useState(100);
+    const [diagnosisInput, setDiagnosisInput] = useState("");
+    const [activeIdx, setActiveIdx] = useState(-1);
+    const [diagnosisResult, setDiagnosisResult] = useState<"correct" | "wrong" | null>(null);
     const elapsedRef = useRef(elapsed);
     elapsedRef.current = elapsed;
 
@@ -77,7 +80,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                     setMinutes((m) => {
                         if (m === 0) {
                             setGameOver(true);
-                            setGameOverReason("Time has expired.");
+                            setGameOverReason({event: "timeOut", description: "Time has expired."});
                             recordEvent({ kind: "game_over", timestamp: elapsedRef.current, reason: "time_expired" });
                             return 0;
                         }
@@ -95,7 +98,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     useEffect(() => {
         if (!gameStarted || gameOver || health > 0) return;
         setGameOver(true);
-        setGameOverReason("Patient's health has reached zero.");
+        setGameOverReason({event: "patientDied", description: "Patient's health has reached zero."});
         recordEvent({ kind: "game_over", timestamp: elapsed, reason: "health_depleted" });
     }, [health, gameStarted, gameOver, elapsed, recordEvent]);
 
@@ -159,7 +162,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
         const total = minutes * 60 + seconds - cost;
         if (total <= 0) {
             setGameOver(true);
-            setGameOverReason("Time has expired.");
+            setGameOverReason({event: "timeOut", description: "Time has expired."});
             setMinutes(0);
             setSeconds(0);
         } else {
@@ -180,7 +183,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
             );
             if (allFulfilled) {
                 setGameOver(true);
-                setGameOverReason("All required interventions completed.");
+                setGameOverReason({event: "won", description: "All required interventions completed."});
                 recordEvent({ kind: "game_over", timestamp: elapsed, reason: "all_required_done" });
             }
         }
@@ -284,6 +287,41 @@ export default function PlayCase({ caseId }: { caseId: string }) {
         }
         return out;
     }, [caseData?.vitals, vitalRandCache]);
+
+    const diagnosisSuggestions = useMemo(() => {
+        if (!diagnosisInput.trim() || diagnosisResult) return [];
+        const lower = diagnosisInput.toLowerCase();
+        return DISEASES_DB.filter((d) => d.name.toLowerCase().includes(lower));
+    }, [diagnosisInput, diagnosisResult]);
+
+    const handleDiagnosisSubmit = useCallback(() => {
+        const correct = caseData?.diagnoses ?? [];
+        if (correct.some((d) => d.toLowerCase() === diagnosisInput.trim().toLowerCase())) {
+            setDiagnosisResult("correct");
+        } else {
+            setDiagnosisResult("wrong");
+        }
+    }, [diagnosisInput, caseData]);
+
+    const handleDiagnosisKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            if (activeIdx >= 0 && activeIdx < diagnosisSuggestions.length) {
+                setDiagnosisInput(diagnosisSuggestions[activeIdx].name);
+                setActiveIdx(-1);
+            } else {
+                handleDiagnosisSubmit();
+            }
+        } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActiveIdx((prev) => Math.min(prev + 1, diagnosisSuggestions.length - 1));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIdx((prev) => Math.max(prev - 1, -1));
+        } else if (e.key === "Escape") {
+            setActiveIdx(-1);
+        }
+    }, [diagnosisSuggestions, activeIdx, handleDiagnosisSubmit]);
 
     // Loading
     if (loading) {
@@ -459,16 +497,65 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 )}
             </div>
             {/* Game over modal */}
-            {gameOverReason && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-8 border border-ink-900/8 text-center">
-
-                        <h2 className="text-2xl font-bold text-ink-900 mb-2">Game Over</h2>
-                        <p className="text-sm text-ink-600 mb-6">{gameOverReason}</p>
-                        <p className="text-xs text-ink-400">Elapsed time: {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</p>
+            {gameOverReason && (() => {
+                const eventConfig = {
+                    won: {icon: "🏆", title: "You Won!", color: "text-emerald-700"},
+                    patientDied: {icon: "💀", title: "Patient Died", color: "text-red-700"},
+                    timeOut: {icon: "⏰", title: "Time's Up", color: "text-amber-700"},
+                };
+                const cfg = eventConfig[gameOverReason.event];
+                return (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-8 border border-ink-900/8 text-center">
+                            <span className="text-4xl mb-3 block">{cfg.icon}</span>
+                            <h2 className={`text-2xl font-bold ${cfg.color} mb-2`}>{cfg.title}</h2>
+                            <p className="text-sm text-ink-600 mb-6">{gameOverReason.description}</p>
+                            <p className="text-xs text-ink-400 mb-6">Elapsed time: {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</p>
+                            <div className="border-t border-ink-900/8 pt-6">
+                                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wide mb-2">What is your diagnosis?</label>
+                                <div className="relative mb-3">
+                                    <input
+                                        type="text"
+                                        value={diagnosisInput}
+                                        onChange={(e) => { setDiagnosisInput(e.target.value); setActiveIdx(-1); setDiagnosisResult(null); }}
+                                        onKeyDown={handleDiagnosisKeyDown}
+                                        className="w-full rounded-lg border border-ink-900/16 px-3 py-2.5 text-sm text-ink-900 placeholder-ink-300 outline-none focus:border-iris-600 transition-colors"
+                                        placeholder="Enter diagnosis..."
+                                        disabled={!!diagnosisResult}
+                                    />
+                                    {diagnosisSuggestions.length > 0 && !diagnosisResult && (
+                                        <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white rounded-lg border border-ink-900/8 shadow-lg max-h-48 overflow-y-auto">
+                                            {diagnosisSuggestions.map((d, i) => (
+                                                <button
+                                                    key={d.id}
+                                                    onMouseDown={() => { setDiagnosisInput(d.name); setActiveIdx(-1); }}
+                                                    className={`w-full text-left px-3 py-2 text-sm cursor-pointer transition-colors ${i === activeIdx ? "bg-iris-100 text-iris-700" : "text-ink-700 hover:bg-ink-50"}`}
+                                                >
+                                                    {d.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                {diagnosisResult === "correct" && (
+                                    <p className="text-sm font-semibold text-emerald-600 mb-3">✓ Correct diagnosis!</p>
+                                )}
+                                {diagnosisResult === "wrong" && (
+                                    <p className="text-sm font-semibold text-rose-600 mb-3">✗ Incorrect. Correct diagnoses: {caseData.diagnoses.join(", ")}</p>
+                                )}
+                                {!diagnosisResult && (
+                                    <button
+                                        onClick={handleDiagnosisSubmit}
+                                        className="w-full rounded-lg bg-iris-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-iris-700 transition-colors cursor-pointer"
+                                    >
+                                        Submit
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* Imaging result modal */}
             {(() => {

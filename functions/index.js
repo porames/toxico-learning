@@ -3,6 +3,21 @@ import admin from "firebase-admin";
 import {initializeApp, cert} from "firebase-admin/app";
 import sharp from "sharp";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function handleCors(req, res) {
+  res.set(corsHeaders);
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return true;
+  }
+  return false;
+}
+
 const firebaseConfig = {
   storageBucket: "rama-toxico-edu.firebasestorage.app",
 };
@@ -46,6 +61,7 @@ function validateStudentIds(studentIds) {
 
 export const enrolStudents = onRequest(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
     // Authentication header
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
@@ -101,6 +117,7 @@ export const enrolStudents = onRequest(async (req, res) => {
 
 export const getStudents = onRequest(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
     // Authentication header
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
@@ -172,6 +189,7 @@ export const getStudents = onRequest(async (req, res) => {
 
 export const signUp = onRequest(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
     const {email, rama_id, pw} = req.body;
     if (!email || !rama_id || !pw) {
       res.status(400).json({
@@ -222,6 +240,7 @@ export const signUp = onRequest(async (req, res) => {
 
 export const createUser = onRequest(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
     // Authentication header
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
@@ -280,6 +299,7 @@ export const createUser = onRequest(async (req, res) => {
 
 export const imageUpload = onRequest(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       res.status(401).json({error: "Unauthorized"});
