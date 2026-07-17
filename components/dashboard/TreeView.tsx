@@ -202,7 +202,7 @@ export default function TreeView({
                           isExpanded={lecExpanded}
                           hasChildren={false}
                           onSelect={() => onSelect({ level: "lecture", classId: cls.id, lectureId: lec.id })}
-                          onToggle={() => onToggle(lec.id)}
+                           onToggle={() => onToggle(lec.id, lecExpanded)}
                           actions={
                             <>
                               <RowIconButton label="Add material" onClick={() => onAddMaterial(cls.id, lec.id)}>

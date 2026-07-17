@@ -157,6 +157,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
         }
 
         async function loadLectures() {
+            if (!classId) return;
             setLecturesLoading(true);
             setLecturesError(null);
             setSelection(null);
@@ -181,7 +182,8 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     }, [classId]);
 
     async function handleLecSelection(lec: Lecture) {
-        setSelection({ level: "lecture", classId: classId, lectureId: lec.id });
+        if (!classId) return;
+        setSelection({ level: "lecture", classId, lectureId: lec.id });
 
         // Materials already fetched for this lecture — no need to hit Firestore again.
         const existing = lectures.find((l) => l.id === lec.id);

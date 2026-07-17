@@ -9,8 +9,8 @@ export const initialClasses: ClassItem[] = [
       {
         id: "lec-1",
         title: "Big-O Notation & Complexity",
-        startTime: "2026-07-21T09:00",
-        endTime: "2026-07-21T10:30",
+        startTime: new Date("2026-07-21T09:00"),
+        endTime: new Date("2026-07-21T10:30"),
         materials: [
           {
             id: "mat-1",
@@ -35,8 +35,8 @@ export const initialClasses: ClassItem[] = [
       {
         id: "lec-2",
         title: "Sorting Algorithms",
-        startTime: "2026-07-23T09:00",
-        endTime: "2026-07-23T10:30",
+        startTime: new Date("2026-07-23T09:00"),
+        endTime: new Date("2026-07-23T10:30"),
         materials: [
           {
             id: "mat-4",
@@ -56,14 +56,14 @@ export const initialClasses: ClassItem[] = [
       {
         id: "lec-3",
         title: "Component Architecture",
-        startTime: "2026-07-22T13:00",
-        endTime: "2026-07-22T14:15",
+        startTime: new Date("2026-07-22T13:00"),
+        endTime: new Date("2026-07-22T14:15"),
         materials: [
           {
             id: "mat-5",
             type: "text",
             title: "Discussion prompt",
-            value: "What makes a component reusable? Bring one example from a site you use daily.",
+            value: "Think about a time you used a component-based UI library (React, Vue, Svelte, etc.). What patterns worked well and what didn't?",
           },
         ],
       },
