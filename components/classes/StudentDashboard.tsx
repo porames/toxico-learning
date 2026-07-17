@@ -79,7 +79,7 @@ function getFileNameFromUrl(url: string): string {
     }
 }
 
-export default function StudentDashboard({ classId }: { classId: string }) {
+export default function StudentDashboard({ classId }: { classId?: string }) {
     const [user, setUser] = useState<User | null>(null);
     const [authLoading, setAuthLoading] = useState(true);
     const [classes, setClasses] = useState<ClassItem[]>([]);
