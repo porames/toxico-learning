@@ -252,7 +252,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                 try {
                     const token = await user.getIdToken();
                     const res = await fetch(
-                        "http://127.0.0.1:5001/rama-toxico-edu/us-central1/getVideoPlaybackUrl",
+                        "https://us-central1-rama-toxico-edu.cloudfunctions.net/getVideoPlaybackUrl",
                         {
                             method: "POST",
                             headers: {

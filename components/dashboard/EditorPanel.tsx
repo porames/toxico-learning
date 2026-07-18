@@ -546,7 +546,7 @@ function MaterialCard({
       try {
         const token = await auth.currentUser?.getIdToken();
         const res = await fetch(
-          "http://127.0.0.1:5001/rama-toxico-edu/us-central1/getVideoPlaybackUrl",
+          "https://us-central1-rama-toxico-edu.cloudfunctions.net/getVideoPlaybackUrl",
           {
             method: "POST",
             headers: {
@@ -579,7 +579,7 @@ function MaterialCard({
     try {
       const token = await auth.currentUser?.getIdToken();
       const uploadRes = await fetch(
-        "http://127.0.0.1:5001/rama-toxico-edu/us-central1/getVideoUploadUrl",
+        "https://us-central1-rama-toxico-edu.cloudfunctions.net/getVideoUploadUrl",
         {
           method: "POST",
           headers: {
@@ -836,7 +836,7 @@ function MaterialCard({
               if (material.type === "video" && videoId) {
                 const token = await auth.currentUser?.getIdToken();
                 await fetch(
-                  "http://127.0.0.1:5001/rama-toxico-edu/us-central1/deleteVideo",
+                  "https://us-central1-rama-toxico-edu.cloudfunctions.net/deleteVideo",
                   {
                     method: "POST",
                     headers: {
