@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Sign in",
-  description: "Sign in to your account",
+  title: "RAMA Toxico | E-Learning",
+  description: "RAMA Toxico | E-Learning",
 };
 
 export default function RootLayout({

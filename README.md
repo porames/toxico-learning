@@ -1,4 +1,4 @@
-# Lumen — Clinical Simulation Platform
+# Clinical Simulation Platform
 
 A medical simulation app for training clinical decision-making. Case authors build interactive management graphs; players navigate scenarios by ordering investigations, selecting medications with correct dosages, and making disposition decisions.
 
