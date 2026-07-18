@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import type { ClassItem, Lecture, Selection } from "../dashboard/types";
-import { Menu, ChevronLeft, FileText, Link as LinkIcon, Video, File, LogOut, ExternalLink } from "lucide-react";
+import type { ClassItem, Lecture, Selection, CompletedLecture } from "../dashboard/types";
+import { ChevronLeft, FileText, Link as LinkIcon, Video, File, LogOut, ExternalLink, Check, MessageCircleWarning } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { addDoc, collection, getDocs, query, where, serverTimestamp, setDoc, doc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import formatTimeRange from "@/lib/formatTimeRange";
+import { MATERIAL_COLOR } from "../dashboard/icons";
 import { onAuthStateChanged, type User } from "firebase/auth";
+import moment from "moment";
 
 // Groups lectures by calendar day (using local time, not UTC) and returns
 // them keyed by "YYYY-MM-DD", sorted chronologically within each day.
@@ -57,10 +59,14 @@ function materialTypeLabel(type: string): string {
     switch (type) {
         case "video":
             return "Video";
+        case "youtube":
+            return "YouTube";
         case "link":
             return "Link";
         case "pdf":
             return "PDF";
+        case "text":
+            return "Note";
         default:
             return "File";
     }
@@ -85,7 +91,6 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     const [classes, setClasses] = useState<ClassItem[]>([]);
     const [lectures, setLectures] = useState<Lecture[]>([]);
     const [selection, setSelection] = useState<Selection>(null);
-    const [showMenu, setShowMenu] = useState<boolean>(false);
 
     const [classesLoading, setClassesLoading] = useState(true);
     const [classesError, setClassesError] = useState<string | null>(null);
@@ -93,8 +98,9 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     const [lecturesError, setLecturesError] = useState<string | null>(null);
     const [materialsLoading, setMaterialsLoading] = useState(false);
     const [materialsError, setMaterialsError] = useState<string | null>(null);
-    const [completedLecs, setCompletedLecs] = useState<any>([]);
+    const [completedLecs, setCompletedLecs] = useState<CompletedLecture[]>([]);
     const [completingLec, setCompletingLec] = useState(false);
+    const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
     const router = useRouter();
 
     useEffect(() => {
@@ -124,17 +130,26 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     lectures: [],
                 }));
                 setClasses(classesData);
-
+                const userQuery = query(
+                    collection(db, "users"),
+                    where("authId", "==", user.uid)
+                );
+                const snapshotUser = await getDocs(userQuery);
+                if (snapshotUser.empty) {
+                    throw new Error("User document not found");
+                }
+                const userDoc = snapshotUser.docs[0];
                 const classIds = classesData.map((c) => c.id);
+                console.log(userDoc.id);
                 const q = query(
-                    collection(db, "users", user.uid, "completedLectures"),
+                    collection(db, "users", userDoc.id, "completedLectures"),
                     where("classId", "in", classIds)
                 );
                 const completedLecSnap = await getDocs(q);
                 const completedLectures = completedLecSnap.docs.map((doc) => ({
                     id: doc.id,
                     ...doc.data(),
-                }));
+                })) as CompletedLecture[];
                 console.log(completedLectures)
                 setCompletedLecs(completedLectures);
 
@@ -169,6 +184,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     startTime: doc.data().startTime.toDate(),
                     endTime: doc.data().endTime.toDate(),
                     materials: [],
+                    materialsOrder: doc.data().materialsOrder || [],
                 }));
                 setLectures(lecturesData);
             } catch (err) {
@@ -202,6 +218,15 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                 value: doc.data().value,
             }));
 
+            const lecOrder = lec.materialsOrder;
+            if (lecOrder && lecOrder.length > 0) {
+                materials.sort((a, b) => {
+                    const aIdx = lecOrder.indexOf(a.id);
+                    const bIdx = lecOrder.indexOf(b.id);
+                    return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx);
+                });
+            }
+
             setLectures((prev) =>
                 prev.map((l) => (l.id === lec.id ? { ...l, materials } : l))
             );
@@ -218,17 +243,49 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
         (l) => selection?.level === "lecture" && l.id === selection.lectureId
     );
     const groupedLectures = useMemo(() => groupLecturesByDate(lectures), [lectures]);
+    const completedIds = useMemo(() => new Set(completedLecs.map((c) => c.lectureId)), [completedLecs]);
+
+    useEffect(() => {
+        if (!selectedLecture || !user) return;
+        selectedLecture.materials.forEach(async (mat) => {
+            if (mat.type === "video" && !videoUrls[mat.id] && mat.value) {
+                try {
+                    const token = await user.getIdToken();
+                    const res = await fetch(
+                        "http://127.0.0.1:5001/rama-toxico-edu/us-central1/getVideoPlaybackUrl",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({ videoId: mat.value }),
+                        }
+                    );
+                    if (res.ok) {
+                        const { embedUrl } = await res.json();
+                        setVideoUrls((prev) => ({ ...prev, [mat.id]: embedUrl }));
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+        });
+    }, [selectedLecture, user]);
 
     function materialIcon(type: string) {
         switch (type) {
             case "video":
-                return <Video size={16} className="text-iris-600 shrink-0" />;
+            case "youtube":
+                return <Video size={16} className="shrink-0" />;
             case "link":
-                return <LinkIcon size={16} className="text-iris-600 shrink-0" />;
+                return <LinkIcon size={16} className="shrink-0" />;
             case "pdf":
-                return <FileText size={16} className="text-iris-600 shrink-0" />;
+                return <FileText size={16} className="shrink-0" />;
+            case "text":
+                return <MessageCircleWarning size={16} className="shrink-0" />;
             default:
-                return <File size={16} className="text-iris-600 shrink-0" />;
+                return <File size={16} className="shrink-0" />;
         }
     }
     async function completedLec() {
@@ -236,7 +293,6 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
             setCompletingLec(true);
             try {
                 const uid = user.uid;
-                console.log(uid);
                 const q = query(
                     collection(db, "users"),
                     where("authId", "==", uid)
@@ -249,9 +305,8 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                 }
 
                 const userDoc = snapshot.docs[0];
-                console.log(userDoc.ref);
                 // Add to a subcollection of that user document
-                await setDoc(doc(userDoc.ref, "completedLectures", selection.lectureId), {
+                await setDoc(doc(db, "users", userDoc.id, "completedLectures", selection.lectureId), {
                     classId: classId,
                     lectureId: selection.lectureId,
                     completedAt: serverTimestamp(),
@@ -276,26 +331,34 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
         <div className="flex h-screen flex-col bg-canvas">
             <header className="flex h-14 shrink-0 items-center justify-between border-b border-ink-900/8 bg-white px-5">
                 <div className="flex items-center gap-2.5">
-                    <button
-                        type="button"
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="md:hidden text-ink-900/60 hover:text-ink-900"
-                        aria-label="Toggle menu"
-                    >
-                        <Menu size={20} />
-                    </button>
                     <div className="flex h-7 w-7 items-center justify-center rounded-md bg-iris-600 shrink-0">
                         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
                             <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="white" />
                         </svg>
                     </div>
-                    <span className="text-[14px] font-semibold tracking-tight text-ink-900">
+                    <button
+                        type="button"
+                        onClick={() => router.push("/classes")}
+                        className="text-[14px] font-semibold tracking-tight text-ink-900 hover:text-iris-600 transition-colors"
+                    >
                         Lecture Manager
-                    </span>
+                    </button>
                     {currentClass && (
                         <>
                             <span className="text-ink-900/20">/</span>
-                            <span className="text-[13px] text-ink-900/60">{currentClass.name}</span>
+                            <button
+                                type="button"
+                                onClick={() => router.push(`/classes/${currentClass.id}`)}
+                                className="text-[13px] text-ink-900/60 hover:text-iris-600 transition-colors"
+                            >
+                                {currentClass.name}
+                            </button>
+                        </>
+                    )}
+                    {selectedLecture && (
+                        <>
+                            <span className="text-ink-900/20">/</span>
+                            <span className="text-[13px] font-medium text-ink-900">{selectedLecture.title}</span>
                         </>
                     )}
                 </div>
@@ -306,8 +369,8 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
 
             <div className="flex min-h-0 flex-1">
                 <aside
-                    className={`w-[300px] shrink-0 overflow-y-auto border-r border-ink-900/8 bg-white px-2 py-3 ${showMenu ? "block" : "hidden"
-                        } md:block`}
+                    className={`overflow-y-auto border-r border-ink-900/8 bg-white px-2 py-3 ${classId ? 'hidden md:block md:w-[300px] md:shrink-0' : 'block w-full md:w-[300px] md:shrink-0'
+                        }`}
                 >
                     <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-900/40">
                         Classes
@@ -338,7 +401,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                 </aside>
 
                 {!classId ? (
-                    <main className="flex flex-1 flex-col items-center justify-center gap-2 overflow-y-auto px-5 text-center">
+                    <main className="hidden md:flex flex-1 flex-col items-center justify-center gap-2 overflow-y-auto px-5 text-center">
                         <p className="text-[14px] font-medium text-ink-900">Pick a class</p>
                         <p className="max-w-xs text-[13px] text-ink-900/50">
                             Choose a class from the sidebar to see its lectures and materials.
@@ -347,8 +410,9 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                 ) : (
                     <main className="flex flex-1 min-w-0 overflow-hidden">
                         {/* Lecture list */}
-                        <div className="w-[280px] shrink-0 overflow-y-auto border-r border-ink-900/8 px-2 py-3">
-                            <div className="mb-2 flex items-center gap-1.5 px-2">
+                        <div className={`overflow-y-auto border-r border-ink-900/8 px-2 py-3 ${selectedLecture ? 'hidden md:block md:w-[280px] md:shrink-0' : 'block w-full md:w-[280px] md:shrink-0'
+                            }`}>
+                            <div className="flex md:hidden items-center gap-1.5 px-2 pb-2">
                                 <button
                                     type="button"
                                     onClick={() => router.push("/classes")}
@@ -392,7 +456,12 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                                             : "hover:bg-ink-900/5"
                                                             }`}
                                                     >
-                                                        <p className="text-[13px] font-medium text-ink-900">{lec.title ? lec.title : "Untitled"}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-[13px] font-medium text-ink-900 flex-1">{lec.title ? lec.title : "Untitled"}</p>
+                                                            {completedIds.has(lec.id) && (
+                                                                <Check size={14} className="shrink-0 text-teal-500" />
+                                                            )}
+                                                        </div>
                                                         <p className="text-[11px] text-ink-900/50">
                                                             {formatTimeRange(lec.startTime, lec.endTime)}
                                                         </p>
@@ -406,7 +475,8 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                         </div>
 
                         {/* Materials panel */}
-                        <div className="flex-1 min-w-0 overflow-y-auto px-6 py-5">
+                        <div className={`flex-1 min-w-0 overflow-y-auto px-6 py-5 ${selectedLecture ? 'block' : 'hidden md:block'
+                            }`}>
                             {!selectedLecture ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                                     <p className="text-[14px] font-medium text-ink-900">Select a lecture</p>
@@ -416,12 +486,35 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                 </div>
                             ) : (
                                 <div>
+                                    {/* Mobile back button */}
+                                    <div className="flex md:hidden items-center gap-1.5 mb-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelection(null)}
+                                            className="text-ink-900/40 hover:text-ink-900"
+                                            aria-label="Back to lectures"
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-900/40">
+                                            {currentClass?.name}
+                                        </p>
+                                    </div>
+
                                     <h2 className="text-[15px] font-semibold text-ink-900">
                                         {selectedLecture.title}
                                     </h2>
-                                    <p className="mt-0.5 text-[12px] text-ink-900/50">
-                                        {formatTimeRange(selectedLecture.startTime, selectedLecture.endTime)}
-                                    </p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <p className="text-[12px] text-ink-900/50">
+                                            {moment(selectedLecture.startTime).format("Do MMM")} · {formatTimeRange(selectedLecture.startTime, selectedLecture.endTime)}
+                                        </p>
+                                        {completedIds.has(selectedLecture.id) && (
+                                            <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2 py-0.5 text-[11px] font-medium text-teal-600">
+                                                <Check size={12} />
+                                                Completed
+                                            </span>
+                                        )}
+                                    </div>
 
                                     <div className="mt-4">
                                         {materialsLoading ? (
@@ -441,39 +534,131 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                             </p>
                                         ) : (
                                             <ul className="space-y-1.5">
-                                                {selectedLecture.materials.map((mat) => (
+                                                {selectedLecture.materials.map((mat) => {
+                                                    const color = MATERIAL_COLOR[mat.type];
+                                                    return (
                                                     <li key={mat.id}>
-                                                        <a
-                                                            href={mat.value}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="group flex items-center gap-3 rounded-md border border-ink-900/8 px-3 py-2.5 transition-colors hover:bg-ink-900/5"
-                                                        >
-                                                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-iris-600/10">
-                                                                {materialIcon(mat.type)}
-                                                            </div>
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="truncate text-[13px] font-medium text-ink-900">
-                                                                        {mat.title}
-                                                                    </p>
-                                                                    <span className="shrink-0 rounded-full bg-ink-900/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-900/50">
-                                                                        {materialTypeLabel(mat.type)}
-                                                                    </span>
+                                                        {mat.type === "text" ? (
+                                                            <div className="group flex items-start gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
+                                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                    {materialIcon(mat.type)}
                                                                 </div>
-                                                                <p className="truncate text-[11px] text-ink-900/40">
-                                                                    {mat.type === "link"
-                                                                        ? mat.value
-                                                                        : getFileNameFromUrl(mat.value)}
-                                                                </p>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <p className="truncate text-[13px] font-medium text-ink-900">
+                                                                            {mat.title}
+                                                                        </p>
+                                                                        <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                            {materialTypeLabel(mat.type)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="mt-1 whitespace-pre-wrap text-[12px] text-ink-900/70">
+                                                                        {mat.value || "No content"}
+                                                                    </p>
+                                                                </div>
                                                             </div>
-                                                            <ExternalLink
-                                                                size={14}
-                                                                className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
-                                                            />
-                                                        </a>
+                                                        ) : mat.type === "youtube" && mat.value ? (
+                                                            (() => {
+                                                                const url = mat.value;
+                                                                const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/);
+                                                                const videoId = match ? match[1] : null;
+                                                                const embedSrc = videoId ? `https://www.youtube.com/embed/${videoId}` : url;
+                                                                 return (
+                                                                     <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
+                                                                         <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
+                                                                             <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                                 {materialIcon(mat.type)}
+                                                                             </div>
+                                                                             <p className="truncate text-[13px] font-medium text-ink-900">
+                                                                                 {mat.title}
+                                                                             </p>
+                                                                             <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                                 {materialTypeLabel(mat.type)}
+                                                                             </span>
+                                                                         </div>
+                                                                         <div className="aspect-video">
+                                                                             <iframe
+                                                                                 src={embedSrc}
+                                                                                 className="h-full w-full"
+                                                                                 allow="autoplay; encrypted-media; picture-in-picture"
+                                                                                 allowFullScreen
+                                                                             />
+                                                                         </div>
+                                                                     </div>
+                                                                );
+                                                            })()
+                                                        ) : mat.type === "video" && videoUrls[mat.id] ? (
+                                                             <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
+                                                                  <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
+                                                                      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                          {materialIcon(mat.type)}
+                                                                      </div>
+                                                                      <p className="truncate text-[13px] font-medium text-ink-900">
+                                                                          {mat.title}
+                                                                      </p>
+                                                                      <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                          {materialTypeLabel(mat.type)}
+                                                                      </span>
+                                                                  </div>
+                                                                 <div className="aspect-video">
+                                                                     <iframe
+                                                                         src={videoUrls[mat.id]}
+                                                                         className="h-full w-full"
+                                                                         allow="autoplay; encrypted-media; picture-in-picture"
+                                                                         allowFullScreen
+                                                                     />
+                                                                 </div>
+                                                             </div>
+                                                        ) : mat.value ? (
+                                                            <a
+                                                                href={mat.value}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="group flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5 transition-colors hover:bg-ink-900/5"
+                                                            >
+                                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                    {materialIcon(mat.type)}
+                                                                </div>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <p className="truncate text-[13px] font-medium text-ink-900">
+                                                                            {mat.title}
+                                                                        </p>
+                                                                        <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                            {materialTypeLabel(mat.type)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="truncate text-[11px] text-ink-900/40">
+                                                                        {mat.type === "link" || mat.type === "pdf"
+                                                                            ? mat.value
+                                                                            : getFileNameFromUrl(mat.value)}
+                                                                    </p>
+                                                                </div>
+                                                                <ExternalLink
+                                                                    size={14}
+                                                                    className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
+                                                                />
+                                                            </a>
+                                                        ) : (
+                                                            <div className="flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
+                                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                    {materialIcon(mat.type)}
+                                                                </div>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <p className="truncate text-[13px] font-medium text-ink-900">
+                                                                            {mat.title}
+                                                                        </p>
+                                                                        <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                            {materialTypeLabel(mat.type)}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </li>
-                                                ))}
+                                                    );
+                                                })}
                                             </ul>
                                         )}
                                     </div>
@@ -481,8 +666,8 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                             )}
                             <button
                                 onClick={() => completedLec()}
-                                disabled={!selectedLecture || completingLec}
-                                className="mt-5 inline-flex items-center gap-2 rounded-md bg-teal-500 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={!selectedLecture || completingLec || (selectedLecture && completedIds.has(selectedLecture.id))}
+                                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gradient-to-b from-teal-500 to-teal-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:from-teal-500 hover:to-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 {completingLec ? (
                                     <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -494,7 +679,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                         <path d="M20 6L9 17l-5-5" />
                                     </svg>
                                 )}
-                                {completingLec ? "Marking..." : "Mark as completed"}
+                                {completingLec ? "Marking..." : selectedLecture && completedIds.has(selectedLecture.id) ? "Completed" : "Mark as completed"}
                             </button>
                         </div>
                     </main>

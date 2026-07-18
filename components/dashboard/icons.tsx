@@ -98,7 +98,8 @@ export const MATERIAL_ICON: Record<MaterialType, (p: IconProps) => JSX.Element> 
   pdf: PdfIcon,
   link: LinkIcon,
   text: TextIcon,
-  file: PdfIcon
+  file: PdfIcon,
+  video: PlayIcon
 };
 
 export const MATERIAL_COLOR: Record<MaterialType, { text: string; bg: string; ring: string }> = {
@@ -107,4 +108,5 @@ export const MATERIAL_COLOR: Record<MaterialType, { text: string; bg: string; ri
   link: { text: "text-mesh-blue", bg: "bg-mesh-blue/10", ring: "ring-mesh-blue/25" },
   text: { text: "text-mesh-teal", bg: "bg-mesh-teal/10", ring: "ring-mesh-teal/25" },
   file: { text: "text-mesh-sky", bg: "bg-mesh-sky/10", ring: "ring-mesh-sky/25" },
+  video: { text: "text-rose-500", bg: "bg-rose-500/10", ring: "ring-rose-500/25" },
 };

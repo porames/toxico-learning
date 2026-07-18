@@ -191,7 +191,7 @@ export default function StepHistory({ data, update }: StepProps) {
                         style={{
                             flex: 1,
                             position: "relative",
-                            minHeight: 480,
+                            maxHeight: 480,
                             background: C.paperDeep,
                             border: `1px solid ${C.line}`,
                             borderRadius: 10,
@@ -200,125 +200,125 @@ export default function StepHistory({ data, update }: StepProps) {
                     >
                         <div style={{ width: 2000 * scale, height: 2000 * scale, position: "relative" }}>
                             <div style={{ width: 2000, height: 2000, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
-                            <svg width="2000" height="2000" viewBox="0 0 2000 2000" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1 }}>
-                                {catEdges.map((e) => {
-                                    const src = graph.nodes.find((n) => n.id === e.source);
-                                    const tgt = graph.nodes.find((n) => n.id === e.target);
-                                    if (!src || !tgt) return null;
-                                    const x1 = src.x + NODE_W, y1 = src.y + NODE_H / 2;
-                                    const x2 = tgt.x, y2 = tgt.y + NODE_H / 2;
-                                    return (
-                                        <g key={e.id}>
-                                            <path d={edgePath(x1, y1, x2, y2)} fill="none" stroke={C.lineStrong} strokeWidth={2} />
-                                            <path
-                                                d={edgePath(x1, y1, x2, y2)}
-                                                fill="none"
-                                                stroke="transparent"
-                                                strokeWidth={16}
-                                                style={{ cursor: "pointer", pointerEvents: "all" }}
-                                                onClick={() => { setSelectedId(e.id); }}
-                                            />
-                                        </g>
-                                    );
-                                })}
-                                {connectLine && (
-                                    <path
-                                        d={edgePath(connectLine.x1, connectLine.y1, connectLine.x2, connectLine.y2)}
-                                        fill="none"
-                                        stroke={C.accent}
-                                        strokeWidth={2}
-                                        strokeDasharray="6 3"
-                                    />
-                                )}
-                            </svg>
+                                <svg width="2000" height="2000" viewBox="0 0 2000 2000" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1 }}>
+                                    {catEdges.map((e) => {
+                                        const src = graph.nodes.find((n) => n.id === e.source);
+                                        const tgt = graph.nodes.find((n) => n.id === e.target);
+                                        if (!src || !tgt) return null;
+                                        const x1 = src.x + NODE_W, y1 = src.y + NODE_H / 2;
+                                        const x2 = tgt.x, y2 = tgt.y + NODE_H / 2;
+                                        return (
+                                            <g key={e.id}>
+                                                <path d={edgePath(x1, y1, x2, y2)} fill="none" stroke={C.lineStrong} strokeWidth={2} />
+                                                <path
+                                                    d={edgePath(x1, y1, x2, y2)}
+                                                    fill="none"
+                                                    stroke="transparent"
+                                                    strokeWidth={16}
+                                                    style={{ cursor: "pointer", pointerEvents: "all" }}
+                                                    onClick={() => { setSelectedId(e.id); }}
+                                                />
+                                            </g>
+                                        );
+                                    })}
+                                    {connectLine && (
+                                        <path
+                                            d={edgePath(connectLine.x1, connectLine.y1, connectLine.x2, connectLine.y2)}
+                                            fill="none"
+                                            stroke={C.accent}
+                                            strokeWidth={2}
+                                            strokeDasharray="6 3"
+                                        />
+                                    )}
+                                </svg>
 
-                            <div style={{ position: "relative", zIndex: 2, pointerEvents: "none" }}>
-                                {catNodes.map((node) => {
-                                const cat = catDef(node.data.category);
-                                const sel = selectedId === node.id;
-                                return (
-                                    <div
-                                        key={node.id}
-                                        onMouseDown={(e) => onMouseDownHeader(e, node)}
-                                        style={{
-                                            position: "absolute",
-                                            left: node.x,
-                                            top: node.y,
-                                            width: NODE_W,
-                                            minHeight: NODE_H,
-                                            background: C.surface,
-                                            border: `2px solid ${sel ? C.ink : cat.color}`,
-                                            borderRadius: 9,
-                                            boxShadow: sel ? "0 3px 10px rgba(27,36,48,0.18)" : "0 1px 4px rgba(27,36,48,0.08)",
-                                            cursor: "grab",
-                                            pointerEvents: "auto",
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                padding: "5px 10px",
-                                                background: cat.soft,
-                                                borderRadius: "7px 7px 0 0",
-                                                fontSize: 10.5,
-                                                fontFamily: "'IBM Plex Mono'",
-                                                fontWeight: 700,
-                                                color: cat.color,
-                                                letterSpacing: 0.5,
-                                                textTransform: "uppercase",
-                                            }}
-                                        >
-                                            {cat.label}
-                                        </div>
-                                        <div style={{ padding: "8px 10px" }}>
-                                            {node.data.question ? (
-                                                <div style={{ fontSize: 13, fontFamily: "'IBM Plex Sans'", color: C.ink, fontWeight: 500, lineHeight: 1.3 }}>
-                                                    {node.data.question.length > 60 ? node.data.question.slice(0, 60) + "…" : node.data.question}
+                                <div style={{ position: "relative", zIndex: 2, pointerEvents: "none" }}>
+                                    {catNodes.map((node) => {
+                                        const cat = catDef(node.data.category);
+                                        const sel = selectedId === node.id;
+                                        return (
+                                            <div
+                                                key={node.id}
+                                                onMouseDown={(e) => onMouseDownHeader(e, node)}
+                                                style={{
+                                                    position: "absolute",
+                                                    left: node.x,
+                                                    top: node.y,
+                                                    width: NODE_W,
+                                                    minHeight: NODE_H,
+                                                    background: C.surface,
+                                                    border: `2px solid ${sel ? C.ink : cat.color}`,
+                                                    borderRadius: 9,
+                                                    boxShadow: sel ? "0 3px 10px rgba(27,36,48,0.18)" : "0 1px 4px rgba(27,36,48,0.08)",
+                                                    cursor: "grab",
+                                                    pointerEvents: "auto",
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        padding: "5px 10px",
+                                                        background: cat.soft,
+                                                        borderRadius: "7px 7px 0 0",
+                                                        fontSize: 10.5,
+                                                        fontFamily: "'IBM Plex Mono'",
+                                                        fontWeight: 700,
+                                                        color: cat.color,
+                                                        letterSpacing: 0.5,
+                                                        textTransform: "uppercase",
+                                                    }}
+                                                >
+                                                    {cat.label}
                                                 </div>
-                                            ) : (
-                                                <div style={{ fontSize: 12, fontFamily: "'IBM Plex Sans'", color: C.inkFaint, fontStyle: "italic" }}>
-                                                    No question set
+                                                <div style={{ padding: "8px 10px" }}>
+                                                    {node.data.question ? (
+                                                        <div style={{ fontSize: 13, fontFamily: "'IBM Plex Sans'", color: C.ink, fontWeight: 500, lineHeight: 1.3 }}>
+                                                            {node.data.question.length > 60 ? node.data.question.slice(0, 60) + "…" : node.data.question}
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{ fontSize: 12, fontFamily: "'IBM Plex Sans'", color: C.inkFaint, fontStyle: "italic" }}>
+                                                            No question set
+                                                        </div>
+                                                    )}
+                                                    {node.data.answer && (
+                                                        <div style={{ fontSize: 11.5, fontFamily: "'IBM Plex Sans'", color: C.inkSoft, marginTop: 4, lineHeight: 1.3 }}>
+                                                            {node.data.answer.length > 80 ? node.data.answer.slice(0, 80) + "…" : node.data.answer}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            )}
-                                            {node.data.answer && (
-                                                <div style={{ fontSize: 11.5, fontFamily: "'IBM Plex Sans'", color: C.inkSoft, marginTop: 4, lineHeight: 1.3 }}>
-                                                    {node.data.answer.length > 80 ? node.data.answer.slice(0, 80) + "…" : node.data.answer}
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div
-                                            data-port-in={node.id}
-                                            style={{
-                                                position: "absolute",
-                                                left: -8,
-                                                top: NODE_H / 2 - 7,
-                                                width: 14,
-                                                height: 14,
-                                                background: C.surface,
-                                                border: `2px solid ${cat.color}`,
-                                                borderRadius: "50%",
-                                                pointerEvents: "auto",
-                                            }}
-                                        />
-                                        <div
-                                            onMouseDown={(e) => onStartConnect(e, node.id)}
-                                            style={{
-                                                position: "absolute",
-                                                right: -8,
-                                                top: NODE_H / 2 - 7,
-                                                width: 14,
-                                                height: 14,
-                                                background: cat.color,
-                                                border: `2px solid ${C.surface}`,
-                                                borderRadius: "50%",
-                                                cursor: "crosshair",
-                                                pointerEvents: "auto",
-                                            }}
-                                        />
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        </div>
+                                                <div
+                                                    data-port-in={node.id}
+                                                    style={{
+                                                        position: "absolute",
+                                                        left: -8,
+                                                        top: NODE_H / 2 - 7,
+                                                        width: 14,
+                                                        height: 14,
+                                                        background: C.surface,
+                                                        border: `2px solid ${cat.color}`,
+                                                        borderRadius: "50%",
+                                                        pointerEvents: "auto",
+                                                    }}
+                                                />
+                                                <div
+                                                    onMouseDown={(e) => onStartConnect(e, node.id)}
+                                                    style={{
+                                                        position: "absolute",
+                                                        right: -8,
+                                                        top: NODE_H / 2 - 7,
+                                                        width: 14,
+                                                        height: 14,
+                                                        background: cat.color,
+                                                        border: `2px solid ${C.surface}`,
+                                                        borderRadius: "50%",
+                                                        cursor: "crosshair",
+                                                        pointerEvents: "auto",
+                                                    }}
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
                     </div>
 

@@ -1,4 +1,4 @@
-export type MaterialType = "youtube" | "pdf" | "link" | "text" | "file";
+export type MaterialType = "youtube" | "pdf" | "link" | "text" | "file" | "video";
 
 export interface Material {
   id: string;
@@ -14,7 +14,7 @@ export interface Lecture {
   startTime: Date; // ISO datetime-local string
   endTime: Date; // ISO datetime-local string
   materials: Material[];
-
+  materialsOrder?: string[];
 }
 
 export interface ClassItem {
@@ -33,6 +33,15 @@ export type Selection =
   | { level: "material"; classId: string; lectureId: string; materialId: string }
   | null;
 
+import type { Timestamp } from "firebase/firestore";
+
+export interface CompletedLecture {
+  id: string;
+  classId: string;
+  lectureId: string;
+  completedAt: Timestamp;
+}
+
 export interface Student {
   uid: string;
   rama_id: string;
@@ -47,5 +56,6 @@ export const MATERIAL_LABELS: Record<MaterialType, string> = {
   pdf: "PDF file",
   link: "External link",
   text: "Text",
-  file: "Attached file"
+  file: "Attached file",
+  video: "Video"
 };

@@ -8,7 +8,7 @@ import { ClassEditor, EmptyState, LectureEditor, defaultMaterialTitle } from "./
 import { Menu, Plus, UserRound } from 'lucide-react';
 import ManageStudents from "./ManageStudents";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, addDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp, getDoc, deleteDoc, doc } from "firebase/firestore";
 import EnrolStudents from "./EnrolStudents";
 
 function makeId() {
@@ -89,6 +89,7 @@ export default function LectureDashboard() {
           startTime: doc.data()["startTime"].toDate(),
           endTime: doc.data()["endTime"].toDate(),
           materials: [],
+          materialsOrder: doc.data()["materialsOrder"] || [],
         }));
 
         setClasses((prevClasses) =>
@@ -181,7 +182,8 @@ export default function LectureDashboard() {
           title: doc.data()["title"],
           startTime: doc.data()["startTime"].toDate(),
           endTime: doc.data()["endTime"].toDate(),
-          materials: []
+          materials: [],
+          materialsOrder: doc.data()["materialsOrder"] || [],
         }));
         setClasses(prevClasses =>
           prevClasses.map(cls =>
@@ -273,6 +275,7 @@ export default function LectureDashboard() {
         ? { level: "lecture", classId, lectureId }
         : sel
     );
+    deleteDoc(doc(db, "classes", classId, "lectures", lectureId, "materials", materialId)).catch(console.error);
   };
 
   // ---- Derived selection lookups ----
@@ -320,10 +323,16 @@ export default function LectureDashboard() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+        {showMenu && (
+          <div
+            className="fixed inset-0 z-10 bg-black/30 md:hidden"
+            onClick={() => setShowMenu(false)}
+          />
+        )}
         <aside
-          className={`w-[300px] shrink-0 overflow-y-auto border-r border-ink-900/8 bg-white px-2 ${showMenu ? "block" : "hidden"
-            } md:block`}
+          className={`w-[300px] shrink-0 overflow-y-auto border-r border-ink-900/8 bg-white px-2 md:relative md:z-auto md:block ${showMenu ? "fixed inset-y-0 left-0 z-20 block" : "hidden"
+            }`}
         >
           <TreeView
             classes={classes}

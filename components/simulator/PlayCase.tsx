@@ -397,9 +397,6 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                     <p className="text-sm text-ink-500 mb-1">
                         {caseData.age || "—"} y/o {caseData.sex} · {caseData.chiefComplaint || "No chief complaint"}
                     </p>
-                    <p className="text-xs text-ink-400 mb-6 leading-relaxed">
-                        {caseData.background ? caseData.background.slice(0, 200) + (caseData.background.length > 200 ? "…" : "") : ""}
-                    </p>
                     <button
                         onClick={startGame}
                         className="rounded-lg bg-iris-600 px-6 py-3 text-sm font-semibold text-white hover:bg-iris-700 transition-colors cursor-pointer"
