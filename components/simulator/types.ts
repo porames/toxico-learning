@@ -243,6 +243,7 @@ export type PlayerEvent =
   | { kind: "exam_performed"; timestamp: number; system: string }
   | { kind: "test_ordered"; timestamp: number; name: string }
   | { kind: "intervention_applied"; timestamp: number; name: string; dose?: string }
+  | { kind: "history_question"; timestamp: number; questionId: string; questionText: string }
   | { kind: "outcome"; timestamp: number; outcomeType: OutcomeKind }
   | { kind: "timer_expired"; timestamp: number }
   | { kind: "game_over"; timestamp: number; reason: string };

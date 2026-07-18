@@ -68,6 +68,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const [diagnosisResult, setDiagnosisResult] = useState<"correct" | "wrong" | null>(null);
     const [currentNode, setCurrentNode] = useState<ManagementNode | null>(null);
     const [unlockedDispositions, setUnlockedDispositions] = useState<string[]>([]);
+    const [askedQuestions, setAskedQuestions] = useState<Set<string>>(new Set());
     const elapsedRef = useRef(elapsed);
     elapsedRef.current = elapsed;
 
@@ -504,7 +505,15 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                     />
                 )}
                 {activeTab === "history" && (
-                    <HistoryPanel data={caseData} />
+                    <HistoryPanel
+                        historyGraph={caseData.historyGraph ?? { nodes: [], edges: [] }}
+                        askedQuestions={askedQuestions}
+                        onAskQuestion={(questionId) => {
+                            setAskedQuestions((prev) => new Set([...Array.from(prev), questionId]));
+                            const node = (caseData.historyGraph?.nodes ?? []).find((n) => n.id === questionId);
+                            recordEvent({ kind: "history_question", timestamp: elapsed, questionId, questionText: node?.data.question ?? "" });
+                        }}
+                    />
                 )}
                 {activeTab === "exam" && (
                     <ExamPanel
