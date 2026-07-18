@@ -1,16 +1,18 @@
-# Lumen — Firebase Auth Login
+# Lumen — Clinical Simulation Platform
 
-A light-themed, Stripe-inspired login/sign-up screen built with Next.js (App Router), Tailwind CSS, and Firebase Authentication. Primary color is purple, with a colorful gradient-mesh signature panel on the left.
+A medical simulation app for training clinical decision-making. Case authors build interactive management graphs; players navigate scenarios by ordering investigations, selecting medications with correct dosages, and making disposition decisions.
 
-## What's included
+Built with **Next.js 14** (App Router), **Tailwind CSS**, **Firebase Auth + Firestore**, and **Clerk**.
 
-- Email/password sign-in **and** sign-up (toggled from the same form)
-- Google sign-in via popup
-- "Forgot password" → sends a Firebase password reset email
-- Friendly, mapped error messages (no raw `auth/...` codes shown to users)
-- Show/hide password toggle, loading + success states
-- Fully responsive: the gradient mesh panel hides below `lg`, form stays centered
-- Accessible focus states, `prefers-reduced-motion` respected
+## Features
+
+- **Case Designer** — authors create cases with vitals, history, physical exam, and a directed graph of management nodes
+- **Graph Editor** — drag-and-drop graph builder with intervention, required intervention, outcome, diagnosis, and lab result nodes
+- **Player** — step through a case: review vitals, order labs/imaging, select interventions with dose options, make diagnosis
+- **Dose-aware matching** — medications carry dose selections; wrong doses trigger deterioration outcomes
+- **Disposition system** — disposition options unlock after completing required management
+- **Google sign-in** via Firebase Auth (with Clerk for session management)
+- **Responsive** — left panel (gradient mesh) hides below `lg`, form stays centered
 
 ## Setup
 
@@ -21,10 +23,9 @@ A light-themed, Stripe-inspired login/sign-up screen built with Next.js (App Rou
    ```
 
 2. **Create a Firebase project** at [console.firebase.google.com](https://console.firebase.google.com), then:
-   - Go to **Build → Authentication → Get started**
-   - Enable the **Email/Password** provider
-   - Enable the **Google** provider
-   - Go to **Project settings → General → Your apps**, add a Web app, and copy the config values
+   - Enable **Authentication → Email/Password** and **Google** providers
+   - Create a **Cloud Firestore** database
+   - Copy your web app config values
 
 3. **Set environment variables**
 
@@ -32,7 +33,7 @@ A light-themed, Stripe-inspired login/sign-up screen built with Next.js (App Rou
    cp .env.local.example .env.local
    ```
 
-   Fill in the six `NEXT_PUBLIC_FIREBASE_*` values from step 2.
+   Fill in the `NEXT_PUBLIC_FIREBASE_*` values and any other required keys.
 
 4. **Run the dev server**
 
@@ -42,14 +43,32 @@ A light-themed, Stripe-inspired login/sign-up screen built with Next.js (App Rou
 
    Visit [http://localhost:3000](http://localhost:3000).
 
-## Where to hook in your app logic
+## Project structure
 
-- `components/LoginForm.tsx` — after a successful sign-in/sign-up, replace the `setNotice(...)` calls with your real redirect (e.g. `router.push("/dashboard")` using `useRouter` from `next/navigation`).
-- `lib/firebase.ts` — the initialized `auth` instance; import this anywhere you need `onAuthStateChanged`, sign-out, etc.
-- `lib/authErrors.ts` — extend this switch statement if you enable more Firebase auth providers or want different copy.
+```
+app/
+  simulator/          — case designer, graph editor
+  simulator/play/     — case player
+components/simulator/
+  CaseDesigner.tsx    — create/edit case metadata
+  GraphEditor.tsx     — authoring graph canvas
+  PlayCase.tsx        — player state machine & graph execution
+  ManagementPanel.tsx — player intervention/disposition UI
+  ImagingPanel.tsx    — player imaging & lab viewer
+  database.ts         — medication doses, management library
+  types.ts            — shared types
+  utils.ts            — helpers
+lib/firebase.ts       — Firebase auth + Firestore init
+```
 
-## Design notes
+## Authoring a case
 
-- **Palette**: primary is `iris` (purple, `#7C5CFC` at 600), background is a warm off-white `canvas` (`#FAFAF9`) — no dark theme.
-- **Signature element**: the left panel's animated radial gradient mesh (purple → blue → teal → pink) is the one bold, colorful moment; the form itself stays quiet, neutral, and functional, Stripe-style.
-- **Type**: Inter throughout, tight tracking on headings, restrained size scale.
+1. Go to `/simulator` → **New Case**
+2. Fill in vitals, history, physical exam
+3. Build a management graph:
+   - **Intervention nodes** — actions the player can take; attach required dose via `doseMap`
+   - **Required nodes** — mandatory interventions; `requiredDoseMap` gates the bonus reward
+   - **Outcome nodes** — health changes, vital changes, or `unlockEvent` (unlocks dispositions)
+   - **Diagnosis nodes** — set the correct diagnosis; player must match it exactly
+   - **Lab result nodes** — display lab data when the player orders a test
+4. Publish → share the case ID with players
