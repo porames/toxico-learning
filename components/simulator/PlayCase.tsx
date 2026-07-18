@@ -4,8 +4,9 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Activity, Stethoscope, FlaskConical, Pill, Heart, Bone, FileText, AlertTriangle, Clock, Syringe, Play } from "lucide-react";
-import type { CaseData, VitalSign, PlayerEvent, OutcomeNodeData, Investigation } from "./types";
+import type { CaseData, VitalSign, PlayerEvent, OutcomeNodeData, Investigation, ManagementNode } from "./types";
 import { VITAL_DEFS, DISEASES_DB } from "./database";
+import { Modal } from "./ui";
 import { GameCanvas } from "./GameCanvas";
 import { VitalsPanel } from "./VitalsPanel";
 import { ExamPanel } from "./ExamPanel";
@@ -13,7 +14,8 @@ import { InvestigationsPanel } from "./InvestigationsPanel";
 import { ImagingPanel } from "./ImagingPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { ManagementPanel } from "./ManagementPanel";
-import { getOutgoingNodes } from "./utils";
+import { getOutgoingNodes, isInterventionRequired } from "./utils";
+import { NodeUserData } from "three/webgpu";
 
 type ActionTab = "vitals" | "history" | "exam" | "investigations" | "imaging" | "management";
 
@@ -48,10 +50,12 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const [examinedSystems, setExaminedSystems] = useState<Set<string>>(new Set());
     const [requestedTests, setRequestedTests] = useState<Set<string>>(new Set());
     const [selectedInterventions, setSelectedInterventions] = useState<Set<string>>(new Set());
+    const [selectedDoses, setSelectedDoses] = useState<Record<string, string>>({});
     const [requiredActions, setRequiredActions] = useState<string[][] | null>(null);
+    const [requiredDoseMap, setRequiredDoseMap] = useState<Record<string, string> | null>(null);
     const [imagingResult, setImagingResult] = useState<Investigation | null>(null);
     const [outcomeModal, setOutcomeModal] = useState<OutcomeNodeData | null>(null);
-    const [gameOverReason, setGameOverReason] = useState<{event: "won" | "patientDied" | "timeOut", description: string} | null>(null);
+    const [gameOverReason, setGameOverReason] = useState<{ event: "won" | "patientDied" | "timeOut", description: string } | null>(null);
     const [minutes, setMinutes] = useState(GAME_DURATION_MINUTES);
     const [seconds, setSeconds] = useState(0);
     const [gameOver, setGameOver] = useState(false);
@@ -62,6 +66,8 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const [diagnosisInput, setDiagnosisInput] = useState("");
     const [activeIdx, setActiveIdx] = useState(-1);
     const [diagnosisResult, setDiagnosisResult] = useState<"correct" | "wrong" | null>(null);
+    const [currentNode, setCurrentNode] = useState<ManagementNode | null>(null);
+    const [unlockedDispositions, setUnlockedDispositions] = useState<string[]>([]);
     const elapsedRef = useRef(elapsed);
     elapsedRef.current = elapsed;
 
@@ -80,7 +86,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                     setMinutes((m) => {
                         if (m === 0) {
                             setGameOver(true);
-                            setGameOverReason({event: "timeOut", description: "Time has expired."});
+                            setGameOverReason({ event: "timeOut", description: "Time has expired." });
                             recordEvent({ kind: "game_over", timestamp: elapsedRef.current, reason: "time_expired" });
                             return 0;
                         }
@@ -98,7 +104,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     useEffect(() => {
         if (!gameStarted || gameOver || health > 0) return;
         setGameOver(true);
-        setGameOverReason({event: "patientDied", description: "Patient's health has reached zero."});
+        setGameOverReason({ event: "patientDied", description: "Patient's health has reached zero." });
         recordEvent({ kind: "game_over", timestamp: elapsed, reason: "health_depleted" });
     }, [health, gameStarted, gameOver, elapsed, recordEvent]);
 
@@ -120,19 +126,6 @@ export default function PlayCase({ caseId }: { caseId: string }) {
             }
         })();
     }, [caseId]);
-
-    useEffect(() => {
-        if (!caseData) return;
-        const graph = caseData.managementGraph;
-        const startNode = graph.nodes.find(n => n.type === "start");
-        if (startNode) {
-            const outgoing = getOutgoingNodes(graph, startNode.id);
-            const requiredNode = outgoing.find(n => n.type === "required");
-            if (requiredNode?.data?.actions) {
-                setRequiredActions(requiredNode.data.actions.map((g: any) => g.or ?? g));
-            }
-        }
-    }, [caseData]);
 
     const startGame = useCallback(() => {
         setGameStarted(true);
@@ -162,7 +155,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
         const total = minutes * 60 + seconds - cost;
         if (total <= 0) {
             setGameOver(true);
-            setGameOverReason({event: "timeOut", description: "Time has expired."});
+            setGameOverReason({ event: "timeOut", description: "Time has expired." });
             setMinutes(0);
             setSeconds(0);
         } else {
@@ -171,11 +164,16 @@ export default function PlayCase({ caseId }: { caseId: string }) {
         }
     }, [minutes, seconds, recordEvent, elapsed]);
 
-    const applyIntervention = useCallback((name: string) => {
+    const applyIntervention = useCallback((name: string, dose?: string) => {
         const nextSelected = new Set(selectedInterventions);
         nextSelected.add(name);
         setSelectedInterventions(nextSelected);
-        recordEvent({ kind: "intervention_applied", timestamp: elapsed, name });
+
+        if (dose) {
+            setSelectedDoses((prev) => ({ ...prev, [name]: dose }));
+        }
+
+        recordEvent({ kind: "intervention_applied", timestamp: elapsed, name, dose });
 
         if (requiredActions) {
             const allFulfilled = requiredActions.every((group) =>
@@ -183,14 +181,15 @@ export default function PlayCase({ caseId }: { caseId: string }) {
             );
             if (allFulfilled) {
                 setGameOver(true);
-                setGameOverReason({event: "won", description: "All required interventions completed."});
+                setGameOverReason({ event: "won", description: "All required interventions completed." });
                 recordEvent({ kind: "game_over", timestamp: elapsed, reason: "all_required_done" });
             }
         }
 
-        // reward if this intervention is a required action
         const isRequired = requiredActions?.some((group) => group.includes(name));
-        if (isRequired) {
+        const requiredDoseOk = !isRequired || !requiredDoseMap?.[name] || requiredDoseMap[name] === dose;
+
+        if (isRequired && requiredDoseOk) {
             const rewardNarrative = `"${name}" is the correct intervention. The patient is responding well.`;
             const rewardData: OutcomeNodeData = {
                 outcomeType: "improved",
@@ -206,13 +205,36 @@ export default function PlayCase({ caseId }: { caseId: string }) {
         if (caseData) {
             const graph = caseData.managementGraph;
             const startNode = graph.nodes.find(n => n.type === "start");
+
             if (startNode) {
-                const outgoing = getOutgoingNodes(graph, startNode.id);
-                const match = outgoing.find(n => n.type === "intervention" && (n.data as any).actions?.includes(name));
-                if (match) {
-                    const outcomeNode = getOutgoingNodes(graph, match.id).find(n => n.type === "outcome");
-                    console.log(outcomeNode)
+                let outgoing: ManagementNode[];
+                if (currentNode === null) {
+                    outgoing = getOutgoingNodes(graph, startNode.id);
+                }
+                else {
+                    console.log("currentNode", currentNode)
+                    outgoing = getOutgoingNodes(graph, currentNode.id);
+                }
+                // no currentNode set, starting node it is
+                const doseMatched = outgoing.find((n) =>
+                    n.type === "intervention" &&
+                    (n.data as any).actions?.includes(name) &&
+                    (!(n.data as any).doseMap?.[name] || (n.data as any).doseMap[name] === dose)
+                );
+
+                const requiredNode = outgoing.find(n => n.type === "required");
+                if (requiredNode) {
+                    console.log("requiredNode unlocked", requiredNode);
+                    setRequiredActions((requiredNode.data as any).actions.map((g: any) => g.or ?? g));
+                    setRequiredDoseMap((requiredNode.data as any).doseMap ?? null);
+                }
+                // correct dose + intervention
+                if (doseMatched) {
+                    const outcomeNode = getOutgoingNodes(graph, doseMatched.id).find(n => n.type === "outcome");
+                    // user gave intervention with outcome -> continue
                     if (outcomeNode) {
+                        setCurrentNode(outcomeNode);
+                        console.log(outcomeNode);
                         const data = outcomeNode.data;
                         const outcomeType = data.outcomeType;
                         setOutcomeModal(data);
@@ -242,12 +264,29 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                                 }
                                 return { ...prev, vitals: merged };
                             });
+                        } else {
+                            setUnlockedDispositions((data as any).unlockedDispositions ?? []);
                         }
-                    }
-                } else {
-                    // intervention not in graph — fall back to deteriorated
-                    console.log("intervention not in graph")
-                    if (!isRequired) {
+                        }
+                    } else {
+                    // wrong dose or drug 
+                    const nameMatched = outgoing.find((n) =>
+                        n.type === "intervention" &&
+                        (n.data as any).actions?.includes(name)
+                    );
+                    if (nameMatched) {
+                        if (!(isRequired && requiredDoseOk)) {
+                            const fallbackData: OutcomeNodeData = {
+                                outcomeType: "deteriorated",
+                                narrative: `"${name}" — wrong dose. The patient is not responding as expected.`,
+                                newSymptoms: "",
+                                vitalChanges: {},
+                            };
+                            setHealth((h) => Math.max(0, h - 30));
+                            setOutcomeModal(fallbackData);
+                            recordEvent({ kind: "outcome", timestamp: elapsed, outcomeType: "deteriorated" });
+                        }
+                    } else if (!isRequired) {
                         const fallbackData: OutcomeNodeData = {
                             outcomeType: "deteriorated",
                             narrative: `"${name}" is not an appropriate intervention for this case.`,
@@ -258,11 +297,11 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                         setOutcomeModal(fallbackData);
                         recordEvent({ kind: "outcome", timestamp: elapsed, outcomeType: "deteriorated" });
                     }
-
                 }
             }
+
         }
-    }, [recordEvent, caseData, elapsed, requiredActions, selectedInterventions]);
+    }, [recordEvent, caseData, elapsed, requiredActions, requiredDoseMap, selectedInterventions]);
 
     const vitalRandCache = useRef<Map<string, string>>(new Map()).current;
 
@@ -327,7 +366,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     // Loading
     if (loading) {
         return (
-            <div className="flex items-center justify-center gap-2 min-h-screen bg-canvas font-sans text-ink-500 text-sm">
+            <div className="flex items-center justify-center gap-2 bg-canvas font-sans text-ink-500 text-sm" style={{ height: "calc(100vh - 48px)" }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-iris-600 animate-spin">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
                 </svg>
@@ -338,7 +377,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
 
     if (error || !caseData) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-canvas font-sans">
+            <div className="flex items-center justify-center bg-canvas font-sans" style={{ height: "calc(100vh - 48px)" }}>
                 <div className="text-center">
                     <AlertTriangle size={32} className="text-ink-400 mx-auto mb-3" />
                     <p className="text-sm text-ink-500">{error || "Could not load case."}</p>
@@ -350,7 +389,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     // Start screen
     if (!gameStarted) {
         return (
-            <div className="min-h-screen bg-canvas font-sans flex items-center justify-center">
+            <div className="bg-canvas font-sans flex items-center justify-center" style={{ height: "calc(100vh - 48px)" }}>
                 <div className="max-w-md text-center">
                     <Heart size={48} className="text-iris-600 mx-auto mb-4" />
                     <h1 className="text-2xl font-semibold text-ink-900 mb-1">{caseData.title || "Untitled case"}</h1>
@@ -374,9 +413,9 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const gameTimeUp = gameOver || (minutes === 0 && seconds === 0);
 
     return (
-        <div className="relative min-h-screen bg-canvas font-sans">
+        <div className="fixed inset-x-0 top-12 bottom-0 bg-canvas font-sans">
             {/* Full-screen 3D scene */}
-            <div className="fixed inset-0">
+            <div className="absolute inset-0">
                 <GameCanvas
                     vitals={resolvedVitals}
                     vitalsVisible={vitalsRequested}
@@ -388,7 +427,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
             </div>
 
             {/* Elapsed timer + health bar — always visible */}
-            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
                 <span className="inline-flex items-center gap-1.5 text-sm font-mono font-semibold text-white bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg">
                     <Clock size={14} />
                     {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
@@ -416,7 +455,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 )}
             </div>
             {/* Event log */}
-            <div className="fixed top-6 left-6 z-10 flex flex-col gap-2 w-[320px] max-h-[40vh] overflow-y-auto bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-ink-900/8 p-3">
+            <div className="absolute top-6 left-6 z-10 flex flex-col gap-2 w-[320px] max-h-[40vh] overflow-y-auto bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-ink-900/8 p-3">
                 <p className="text-[11px] font-semibold text-ink-400 uppercase tracking-wide mb-1">Event Log</p>
                 {playerEvents.length === 0 && (
                     <p className="text-xs text-ink-300 italic">No events yet</p>
@@ -456,7 +495,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 </div>
             </div>
             {/* Active panel content */}
-            <div className="fixed bottom-6 left-6 z-10 flex flex-col gap-2 max-w-[420px] max-h-[55vh] overflow-y-auto bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-ink-900/8 p-4">
+            <div className="min-w-lg absolute bottom-6 left-6 z-10 flex flex-col gap-2 max-w-[420px] max-h-[55vh] overflow-y-auto bg-white/90 backdrop-blur-md rounded-xl shadow-lg border border-ink-900/8 p-4">
                 {activeTab === "vitals" && (
                     <VitalsPanel
                         vitals={resolvedVitals}
@@ -493,21 +532,23 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                     <ManagementPanel
                         caseData={caseData}
                         selectedInterventions={selectedInterventions}
+                        unlockedDispositions={unlockedDispositions}
                         onSelectIntervention={applyIntervention}
                     />
                 )}
             </div>
             {/* Game over modal */}
-            {gameOverReason && (() => {
+            {(() => {
+                if (!gameOverReason) return null;
                 const eventConfig = {
-                    won: {icon: "🏆", title: "You Won!", color: "text-emerald-700"},
-                    patientDied: {icon: "💀", title: "Patient Died", color: "text-red-700"},
-                    timeOut: {icon: "⏰", title: "Time's Up", color: "text-amber-700"},
+                    won: { icon: "🏆", title: "You Won!", color: "text-emerald-700" },
+                    patientDied: { icon: "💀", title: "Patient Died", color: "text-red-700" },
+                    timeOut: { icon: "⏰", title: "Time's Up", color: "text-amber-700" },
                 };
                 const cfg = eventConfig[gameOverReason.event];
                 return (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-8 border border-ink-900/8 text-center">
+                    <Modal open zIndex="z-[60]">
+                        <div className="p-8 text-center">
                             <span className="text-4xl mb-3 block">{cfg.icon}</span>
                             <h2 className={`text-2xl font-bold ${cfg.color} mb-2`}>{cfg.title}</h2>
                             <p className="text-sm text-ink-600 mb-6">{gameOverReason.description}</p>
@@ -553,8 +594,22 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                                     </button>
                                 )}
                             </div>
+                            <div className="flex gap-2 mt-4">
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="flex-1 rounded-lg border border-ink-900/8 px-4 py-2.5 text-sm font-semibold text-ink-500 hover:bg-gray-100 transition-colors cursor-pointer"
+                                >
+                                    Try Again
+                                </button>
+                                <button
+                                    onClick={() => window.location.href = "/"}
+                                    className="flex-1 rounded-lg bg-iris-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-iris-700 transition-colors cursor-pointer"
+                                >
+                                    Back to Home
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    </Modal>
                 );
             })()}
 
@@ -563,12 +618,9 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 const img = imagingResult;
                 if (!img || img.kind !== "imaging") return null;
                 return (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-ink-900/8">
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-lg font-semibold text-ink-900">{img.name}</h2>
-                                <button onClick={() => setImagingResult(null)} className="text-ink-400 hover:text-ink-700 text-xl leading-none cursor-pointer">&times;</button>
-                            </div>
+                    <Modal open onClose={() => setImagingResult(null)} maxWidth="max-w-lg">
+                        <div className="p-6">
+                            <h2 className="text-lg font-semibold text-ink-900 mb-4">{img.name}</h2>
                             <p className="text-sm text-ink-700 mb-3 leading-relaxed">{img.report || "No report entered."}</p>
                             {img.imageUrl && (
                                 <img src={img.imageUrl} alt={img.name} className="max-w-full max-h-72 rounded border border-ink-900/8" />
@@ -580,12 +632,13 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                                 Close
                             </button>
                         </div>
-                    </div>
+                    </Modal>
                 );
             })()}
 
             {/* Outcome modal */}
-            {outcomeModal && (() => {
+            {(() => {
+                if (!outcomeModal) return null;
                 const colors: Record<string, { title: string; heading: string; bg: string; hover: string; label: string }> = {
                     improved: { title: "Condition Improved", heading: "text-emerald-700", bg: "bg-emerald-600", hover: "hover:bg-emerald-700", label: "text-emerald-600" },
                     deteriorated: { title: "Condition Deteriorated", heading: "text-rose-700", bg: "bg-rose-600", hover: "hover:bg-rose-700", label: "text-rose-600" },
@@ -594,12 +647,9 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                 };
                 const c = colors[outcomeModal.outcomeType] ?? colors.deteriorated;
                 return (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 border border-ink-900/8">
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className={`text-lg font-semibold ${c.heading}`}>{c.title}</h2>
-                                <button onClick={() => setOutcomeModal(null)} className="text-ink-400 hover:text-ink-700 text-xl leading-none cursor-pointer">&times;</button>
-                            </div>
+                    <Modal open onClose={() => setOutcomeModal(null)}>
+                        <div className="p-6">
+                            <h2 className={`text-lg font-semibold ${c.heading} mb-4`}>{c.title}</h2>
                             {outcomeModal.outcomeType !== "unlockEvent" && (
                                 <>
                                     {outcomeModal.narrative && (
@@ -635,12 +685,12 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                                 Continue
                             </button>
                         </div>
-                    </div>
+                    </Modal>
                 );
             })()}
 
             {/* Floating action panel — bottom-right */}
-            <div className="fixed bottom-6 right-6 z-10 flex flex-col gap-2 max-w-[420px]">
+            <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2 max-w-[420px]">
                 {/* Tab buttons */}
                 <div className="flex flex-col gap-3 bg-white/90 backdrop-blur-md rounded-xl p-3 shadow-lg border border-ink-900/8">
                     {TABS.map((t) => {

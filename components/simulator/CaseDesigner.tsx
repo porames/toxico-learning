@@ -669,11 +669,10 @@ const STEPS = [
     { key: "review", label: "Case sheet", num: "06" },
 ];
 
-export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: string }) {
+export default function CaseDesigner({ caseId: initialCaseId, sidebarOpen, setSidebarOpen }: { caseId?: string; sidebarOpen: boolean; setSidebarOpen: (v: boolean) => void }) {
     const router = useRouter();
     const [step, setStep] = useState(0);
     const [caseData, setCaseData] = useState(emptyCase);
-    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [caseId, setCaseId] = useState<string | null>(initialCaseId && initialCaseId !== "new" ? initialCaseId : null);
     const [loading, setLoading] = useState(!!initialCaseId && initialCaseId !== "new");
@@ -734,6 +733,18 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
         })();
     }, [initialCaseId]);
 
+    function stripUndefined(obj: unknown): unknown {
+        if (Array.isArray(obj)) return obj.map(stripUndefined);
+        if (obj && typeof obj === "object" && !(obj as any).toDate && !(obj as any).isEqual) {
+            const clean: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(obj)) {
+                if (v !== undefined) clean[k] = stripUndefined(v);
+            }
+            return clean;
+        }
+        return obj;
+    }
+
     const updateCase = async () => {
         setSaving(true);
         try {
@@ -743,9 +754,9 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
                 createdAt: serverTimestamp(),
             };
             if (caseId) {
-                await setDoc(doc(db, "simulations", caseId), payload);
+                await setDoc(doc(db, "simulations", caseId), stripUndefined(payload) as Record<string, unknown>);
             } else {
-                const ref = await addDoc(collection(db, "simulations"), payload);
+                const ref = await addDoc(collection(db, "simulations"), stripUndefined(payload) as Record<string, unknown>);
                 setCaseId(ref.id);
                 router.push(`/simulator/${ref.id}`);
             }
@@ -792,42 +803,6 @@ export default function CaseDesigner({ caseId: initialCaseId }: { caseId?: strin
                     .sidebar-mobile { display: none !important; }
                 }
             ` }} />
-
-            <div style={{ borderBottom: `1px solid ${C.lineStrong}`, background: C.surface, padding: "18px 32px", display: "flex", alignItems: "center", gap: 12 }}>
-                <button
-                    className="sidebar-mobile"
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    style={{
-                        border: "none",
-                        background: "none",
-                        cursor: "pointer",
-                        padding: 8,
-                        color: C.ink,
-                        flexShrink: 0,
-                    }}
-                >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        {sidebarOpen ? (
-                            <>
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                            </>
-                        ) : (
-                            <>
-                                <line x1="3" y1="6" x2="21" y2="6" />
-                                <line x1="3" y1="12" x2="21" y2="12" />
-                                <line x1="3" y1="18" x2="21" y2="18" />
-                            </>
-                        )}
-                    </svg>
-                </button>
-                <div>
-                    <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: C.accent, letterSpacing: 2, fontWeight: 600 }}>SIMULATION CASE DESIGNER</div>
-                    <div style={{ fontFamily: "'IBM Plex Sans'", fontSize: 20, fontWeight: 600, color: C.ink }}>
-                        {caseData.title || "New case"}
-                    </div>
-                </div>
-            </div>
 
             <div style={{ display: "flex", maxWidth: 1180, margin: "0 auto" }}>
                 {/* sidebar overlay for mobile */}

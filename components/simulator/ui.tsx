@@ -1,7 +1,7 @@
 import React from "react";
 import type {
     FieldProps, PrimaryButtonProps, GhostButtonProps, ChipProps,
-    CardProps, SectionHeadingProps,
+    CardProps, SectionHeadingProps, ModalProps,
 } from "./types";
 import { C } from "./database";
 
@@ -126,6 +126,25 @@ export function SectionHeading({ eyebrow, title, desc }: SectionHeadingProps) {
             </div>
             <h2 style={{ fontFamily: "'IBM Plex Sans'", fontSize: 24, fontWeight: 600, color: C.ink, margin: 0 }}>{title}</h2>
             {desc && <p style={{ fontFamily: "'IBM Plex Sans'", color: C.inkSoft, fontSize: 14, marginTop: 6, maxWidth: 560 }}>{desc}</p>}
+        </div>
+    );
+}
+
+export function Modal({ open, onClose, children, maxWidth = "max-w-md", zIndex = "z-50" }: ModalProps) {
+    if (!open) return null;
+    return (
+        <div className={`fixed inset-0 ${zIndex} flex items-center justify-center bg-black/40 backdrop-blur-sm`}>
+            <div className={`bg-white rounded-xl shadow-2xl ${maxWidth} w-full mx-4 border border-ink-900/8 relative`}>
+                {onClose && (
+                    <button
+                        onClick={onClose}
+                        className="absolute top-3 right-3 text-ink-400 hover:text-ink-700 text-2xl leading-none cursor-pointer z-10"
+                    >
+                        &times;
+                    </button>
+                )}
+                {children}
+            </div>
         </div>
     );
 }

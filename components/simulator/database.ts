@@ -1,4 +1,4 @@
-import type { VitalDef, OutcomeType, LabTest, NodeSize, NodeMeta } from "./types";
+import type { VitalDef, OutcomeType, LabTest, NodeSize, NodeMeta, DoseEntry } from "./types";
 
 export const C = {
     paper: "#fafaf9",
@@ -134,7 +134,7 @@ export const EXAM_SYSTEMS: string[] = [
 
 export const MANAGEMENT_LIBRARY: Record<string, string[]> = {
     "IV Access & Fluids": ["Normal Saline bolus", "Lactated Ringer's bolus", "Maintenance IV fluids"],
-    "Oxygen & Airway": ["Supplemental O2 (nasal cannula)", "Non-rebreather mask", "Endotracheal intubation", "BiPAP / CPAP"],
+    "Oxygen & Airway": ["Supplemental O2 (nasal cannula)", "High flow nasal cannula", "Non-rebreather mask", "Endotracheal intubation", "BiPAP / CPAP"],
     "Analgesia & Sedation": ["Morphine IV", "Fentanyl IV", "Acetaminophen PO/IV", "Ketorolac IV"],
     Antiemetics: ["Ondansetron IV"],
     Antibiotics: ["Ceftriaxone IV", "Vancomycin IV", "Piperacillin-Tazobactam IV", "Azithromycin PO", "Metronidazole IV"],
@@ -145,8 +145,139 @@ export const MANAGEMENT_LIBRARY: Record<string, string[]> = {
     Respiratory: ["Albuterol nebulizer", "Ipratropium nebulizer", "Methylprednisolone IV"],
     "Anticoagulation / Reversal": ["Heparin infusion", "Vitamin K IV", "FFP transfusion", "PRBC transfusion"],
     Procedures: ["Chest tube insertion", "Central line placement", "Lumbar puncture", "Foley catheter"],
-    "Electrolyte & Metabolic": ["Sodium bicarbonate IV", "Calcium gluconate 10% IV", "Regular insulin IV", "Dextrose 50% IV"],
+    "Electrolyte & Metabolic": ["7.5% Sodium bicarbonate IV", "Calcium gluconate 10% IV", "Regular insulin IV", "Dextrose 50% IV"],
     Disposition: ["Admit to floor", "Admit to ICU", "Transfer to OR", "Discharge home", "Transfer to another facility"],
+};
+
+export const MEDICATION_DOSES: Record<string, DoseEntry[]> = {
+    "Morphine IV": [
+        { label: "0.5 mg" },
+        { label: "1 mg" },
+        { label: "2 mg", isDefault: true },
+        { label: "4 mg" },
+    ],
+    "Fentanyl IV": [
+        { label: "25 mcg" },
+        { label: "50 mcg", isDefault: true },
+        { label: "100 mcg" },
+    ],
+    "Acetaminophen PO/IV": [
+        { label: "325 mg" },
+        { label: "650 mg", isDefault: true },
+        { label: "1000 mg" },
+    ],
+    "Ketorolac IV": [
+        { label: "15 mg" },
+        { label: "30 mg", isDefault: true },
+    ],
+    "Ondansetron IV": [
+        { label: "4 mg", isDefault: true },
+        { label: "8 mg" },
+    ],
+    "Ceftriaxone IV": [
+        { label: "1 g", isDefault: true },
+        { label: "2 g" },
+    ],
+    "Vancomycin IV": [
+        { label: "1 g", isDefault: true },
+        { label: "1.5 g" },
+        { label: "2 g" },
+    ],
+    "Piperacillin-Tazobactam IV": [
+        { label: "3.375 g" },
+        { label: "4.5 g", isDefault: true },
+    ],
+    "Azithromycin PO": [
+        { label: "250 mg" },
+        { label: "500 mg", isDefault: true },
+    ],
+    "Metronidazole IV": [
+        { label: "500 mg", isDefault: true },
+    ],
+    "Furosemide IV": [
+        { label: "20 mg" },
+        { label: "40 mg", isDefault: true },
+        { label: "80 mg" },
+    ],
+    "Bumetanide IV": [
+        { label: "0.5 mg" },
+        { label: "1 mg", isDefault: true },
+        { label: "2 mg" },
+    ],
+    "Spironolactone PO": [
+        { label: "25 mg", isDefault: true },
+        { label: "50 mg" },
+        { label: "100 mg" },
+    ],
+    "Hydrochlorothiazide PO": [
+        { label: "12.5 mg" },
+        { label: "25 mg", isDefault: true },
+        { label: "50 mg" },
+    ],
+    "Amiodarone IV": [
+        { label: "150 mg", isDefault: true },
+        { label: "300 mg" },
+    ],
+    "Adenosine IV": [
+        { label: "6 mg", isDefault: true },
+        { label: "12 mg" },
+    ],
+    "Aspirin PO": [
+        { label: "81 mg" },
+        { label: "162 mg" },
+        { label: "325 mg", isDefault: true },
+    ],
+    "Nitroglycerin SL": [
+        { label: "0.3 mg" },
+        { label: "0.4 mg", isDefault: true },
+        { label: "0.6 mg" },
+    ],
+    "Labetalol IV": [
+        { label: "10 mg" },
+        { label: "20 mg", isDefault: true },
+        { label: "40 mg" },
+    ],
+    "Epinephrine IV push": [
+        { label: "0.1 mg" },
+        { label: "0.5 mg", isDefault: true },
+        { label: "1 mg" },
+    ],
+    "Albuterol nebulizer": [
+        { label: "2.5 mg", isDefault: true },
+        { label: "5 mg" },
+    ],
+    "Ipratropium nebulizer": [
+        { label: "0.2 mg" },
+        { label: "0.5 mg", isDefault: true },
+        { label: "1 mg" },
+    ],
+    "Methylprednisolone IV": [
+        { label: "40 mg" },
+        { label: "125 mg", isDefault: true },
+        { label: "250 mg" },
+    ],
+    "Vitamin K IV": [
+        { label: "5 mg", isDefault: true },
+        { label: "10 mg" },
+    ],
+    "Regular insulin IV": [
+        { label: "5 units" },
+        { label: "10 units", isDefault: true },
+        { label: "15 units" },
+    ],
+    "Calcium gluconate 10% IV": [
+        { label: "10 mL", isDefault: true },
+        { label: "20 mL" },
+    ],
+    "7.5% Sodium bicarbonate IV": [
+        { label: "25 mL" },
+        { label: "50 mL", isDefault: true },
+        { label: "100 mL" },
+    ],
+    "Dextrose 50% IV": [
+        { label: "12.5 g (0.5 amp)" },
+        { label: "25 g (1 amp)", isDefault: true },
+    ],
 };
 
 export const OUTCOME_TYPES: OutcomeType[] = [

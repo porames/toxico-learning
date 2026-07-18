@@ -45,6 +45,11 @@ export interface ImagingInvestigation {
 
 export type Investigation = LabInvestigation | ImagingInvestigation;
 
+export interface DoseEntry {
+  label: string;
+  isDefault?: boolean;
+}
+
 export interface TimerNodeData {
   minutes: number;
   note: string;
@@ -52,6 +57,7 @@ export interface TimerNodeData {
 
 export interface InterventionNodeData {
   actions: string[];
+  doseMap?: Record<string, string>;
 }
 
 export interface RequiredOrGroup {
@@ -60,6 +66,7 @@ export interface RequiredOrGroup {
 
 export interface RequiredInterventionNodeData {
   actions: RequiredOrGroup[];
+  doseMap?: Record<string, string>;
 }
 
 export type OutcomeKind = "improved" | "deteriorated" | "critical" | "unchanged" | "unlockEvent";
@@ -159,6 +166,14 @@ export interface SectionHeadingProps {
   desc?: string;
 }
 
+export interface ModalProps {
+  open: boolean;
+  onClose?: () => void;
+  children: ReactNode;
+  maxWidth?: string;
+  zIndex?: string;
+}
+
 export interface StepProps {
   data: CaseData;
   update: (patch: Partial<CaseData>) => void;
@@ -200,7 +215,7 @@ export type PlayerEvent =
   | { kind: "vitals_requested"; timestamp: number }
   | { kind: "exam_performed"; timestamp: number; system: string }
   | { kind: "test_ordered"; timestamp: number; name: string }
-  | { kind: "intervention_applied"; timestamp: number; name: string }
+  | { kind: "intervention_applied"; timestamp: number; name: string; dose?: string }
   | { kind: "outcome"; timestamp: number; outcomeType: OutcomeKind }
   | { kind: "timer_expired"; timestamp: number }
   | { kind: "game_over"; timestamp: number; reason: string };

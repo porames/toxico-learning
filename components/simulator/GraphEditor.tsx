@@ -7,7 +7,7 @@ import type {
     StepProps,
 } from "./types";
 import {
-    C, MANAGEMENT_LIBRARY, OUTCOME_TYPES, VITAL_DEFS, NODE_SIZE, NODE_META,
+    C, MANAGEMENT_LIBRARY, MEDICATION_DOSES, OUTCOME_TYPES, VITAL_DEFS, NODE_SIZE, NODE_META,
 } from "./database";
 import {
     inputStyle, TextInput, TextArea, Field, GhostButton, Chip, Card, SectionHeading,
@@ -18,7 +18,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 function defaultNodeData(type: string) {
     if (type === "timer") return { minutes: 10, note: "no critical action taken" };
     if (type === "intervention") {
-        return { actions: [MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0]] };
+        return { actions: [] };
     }
     if (type === "required") {
         const first = MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0];
@@ -80,9 +80,14 @@ function GraphNode({ node, selected, onMouseDownHeader, onStartConnect }: GraphN
                 )}
                 {node.type === "intervention" && (
                     <div className="flex flex-col gap-1">
-                        {(node.data.actions ?? []).map((a: string) => (
-                            <div key={a} className="text-[13px] font-sans" style={{ color: C.ink }}>· {a}</div>
-                        ))}
+                        {(node.data.actions ?? []).map((a: string) => {
+                            const dose = node.data.doseMap?.[a];
+                            return (
+                                <div key={a} className="text-[13px] font-sans" style={{ color: C.ink }}>
+                                    · {a}{dose ? <span style={{ color: C.accent }}> — {dose}</span> : ""}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
                 {node.type === "required" && (
@@ -92,7 +97,10 @@ function GraphNode({ node, selected, onMouseDownHeader, onStartConnect }: GraphN
                             {(node.data.actions ?? []).map((group, gi) => (
                                 <span key={gi}>
                                     {gi > 0 && <span className="text-[10px] font-mono mx-0.5" style={{ color: C.inkFaint }}>AND</span>}
-                                    <span>({(group.or ?? []).join(" OR ")})</span>
+                                    <span>({(group.or ?? []).map((a: string) => {
+                                        const dose = node.data.doseMap?.[a];
+                                        return dose ? `${a} → ${dose}` : a;
+                                    }).join(" OR ")})</span>
                                 </span>
                             )) || "—"}
                         </div>
@@ -193,8 +201,10 @@ export default function StepManagement({ data, update }: StepProps) {
         console.log(graph)
     };
 
-    const updateNodeData = (id: string, patch: Record<string, unknown>) =>
-        setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)) as ManagementNode[] });
+    const updateNodeData = (id: string, patch: Record<string, unknown>) => {
+        const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+        setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...clean } } : n)) as ManagementNode[] });
+    };
 
     const resetOutcomeData = (outcomeType: string) => {
         if (outcomeType === "unlockEvent") return { outcomeType, unlockedDispositions: [] as string[] };
@@ -379,7 +389,7 @@ export default function StepManagement({ data, update }: StepProps) {
                     </div>
                 </div>
 
-                <div className="fixed bottom-12 left-6" style={{ width: 300 }}>
+                <div className="fixed bottom-12 left-6" style={{ width: 300, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}>
                     <Card>
                         {!selectedNode && !selectedEdge && (
                             <div className="text-[13.5px] font-sans" style={{ color: C.inkFaint }}>
@@ -436,25 +446,69 @@ export default function StepManagement({ data, update }: StepProps) {
                                                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 10px" }}>
                                                         {actions.map((a) => {
                                                             const selected = selectedNode.data.actions.includes(a);
+                                                            const doses = MEDICATION_DOSES[a];
+                                                            const currentDose = selectedNode.data.doseMap?.[a];
                                                             return (
-                                                                <button
-                                                                    key={a}
-                                                                    onClick={() => {
-                                                                        const next = selected
-                                                                            ? selectedNode.data.actions.filter((o: string) => o !== a)
-                                                                            : [...selectedNode.data.actions, a];
-                                                                        updateNodeData(selectedNode.id, { actions: next });
-                                                                    }}
-                                                                    style={{
-                                                                        border: `1px solid ${selected ? C.accent : C.line}`,
-                                                                        background: selected ? C.accent : C.paper,
-                                                                        color: selected ? "#fff" : C.inkSoft,
-                                                                        fontFamily: "'IBM Plex Sans'", fontWeight: 500, fontSize: 10.5,
-                                                                        borderRadius: 5, padding: "4px 9px", cursor: "pointer",
-                                                                    }}
-                                                                >
-                                                                    {a}
-                                                                </button>
+                                                                <div key={a} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (selected) {
+                                                                                const next = selectedNode.data.actions.filter((o: string) => o !== a);
+                                                                                const nextDoseMap = { ...(selectedNode.data.doseMap ?? {}) };
+                                                                                delete nextDoseMap[a];
+                                                                                updateNodeData(selectedNode.id, { actions: next, doseMap: nextDoseMap });
+                                                                            } else {
+                                                                                const defaultDose = doses?.find((d) => d.isDefault);
+                                                                                const doseMap = defaultDose
+                                                                                    ? { ...(selectedNode.data.doseMap ?? {}), [a]: defaultDose.label }
+                                                                                    : selectedNode.data.doseMap;
+                                                                                updateNodeData(selectedNode.id, { actions: [...selectedNode.data.actions, a], doseMap });
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            border: `1px solid ${selected ? C.accent : C.line}`,
+                                                                            background: selected ? C.accent : C.paper,
+                                                                            color: selected ? "#fff" : C.inkSoft,
+                                                                            fontFamily: "'IBM Plex Sans'", fontWeight: 500, fontSize: 10.5,
+                                                                            borderRadius: 5, padding: "4px 9px", cursor: "pointer",
+                                                                        }}
+                                                                    >
+                                                                        {a}
+                                                                    </button>
+                                                                    {selected && doses && (
+                                                                        <select
+                                                                            value={currentDose ?? ""}
+                                                                            onChange={(e) => {
+                                                                                const dose = e.target.value;
+                                                                                const current = selectedNode.data.doseMap ?? {};
+                                                                                if (dose) {
+                                                                                    updateNodeData(selectedNode.id, { doseMap: { ...current, [a]: dose } });
+                                                                                } else {
+                                                                                    const next = { ...current };
+                                                                                    delete next[a];
+                                                                                    updateNodeData(selectedNode.id, { doseMap: next });
+                                                                                }
+                                                                            }}
+                                                                            style={{
+                                                                                fontSize: 9.5,
+                                                                                fontFamily: "'IBM Plex Mono'",
+                                                                                padding: "1px 3px",
+                                                                                borderRadius: 3,
+                                                                                border: `1px solid ${C.line}`,
+                                                                                background: C.paper,
+                                                                                color: C.ink,
+                                                                                cursor: "pointer",
+                                                                            }}
+                                                                        >
+                                                                            <option value="">Any dose</option>
+                                                                            {doses.map((d) => (
+                                                                                <option key={d.label} value={d.label}>
+                                                                                    {d.label}{d.isDefault ? " (default)" : ""}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    )}
+                                                                </div>
                                                             );
                                                         })}
                                                     </div>
@@ -479,76 +533,142 @@ export default function StepManagement({ data, update }: StepProps) {
                                     Groups combine with <strong>AND</strong>. Alternatives within a group combine with <strong>OR</strong>.
                                 </div>
                                 <div className="space-y-2 mb-2">
-                                    {selectedNode.data.actions.map((group, gi) => (
-                                        <div key={gi} className="rounded border p-2" style={{ borderColor: C.line }}>
-                                            <div className="flex items-center justify-between mb-1.5">
-                                                <span className="text-[10px] font-mono font-semibold" style={{ color: C.inkFaint }}>
-                                                    {gi > 0 && <span style={{ color: "#d97706" }}>AND </span>}Group {gi + 1}
-                                                </span>
-                                                <GhostButton danger onClick={() => {
-                                                    const next = selectedNode.data.actions.filter((_: any, j: number) => j !== gi);
-                                                    updateNodeData(selectedNode.id, { actions: next });
-                                                }}>×</GhostButton>
-                                            </div>
-                                            <div className="space-y-1">
-                                                {Object.entries(MANAGEMENT_LIBRARY).map(([cat, catActions]) => {
-                                                    const catSelected = catActions.filter((a: string) => (group.or ?? []).includes(a));
-                                                    const isOpen = expandedCats[`req-${gi}-${cat}`] ?? catSelected.length > 0;
-                                                    return (
-                                                        <div key={cat} className="rounded" style={{ border: `1px solid ${C.line}`, overflow: "hidden" }}>
-                                                            <button
-                                                                onClick={() => toggleCat(`req-${gi}-${cat}`)}
-                                                                style={{
-                                                                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                                                                    width: "100%", border: "none", background: catSelected.length > 0 ? "#d97706" : C.paperDeep,
-                                                                    padding: "4px 8px", cursor: "pointer",
-                                                                }}
-                                                            >
-                                                                <span className="text-[10px] font-mono font-semibold" style={{ color: catSelected.length > 0 ? "#fff" : C.inkSoft }}>
-                                                                    {cat} {catSelected.length > 0 && <span>({catSelected.length})</span>}
-                                                                </span>
-                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={catSelected.length > 0 ? "#fff" : C.inkFaint} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                                                                    style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
-                                                                >
-                                                                    <polyline points="6 9 12 15 18 9" />
-                                                                </svg>
-                                                            </button>
-                                                            {isOpen && (
-                                                                <div style={{ display: "flex", flexWrap: "wrap", gap: 3, padding: "6px 8px" }}>
-                                                                    {catActions.map((a: string) => {
-                                                                        const selected = (group.or ?? []).includes(a);
-                                                                        return (
-                                                                            <button
-                                                                                key={a}
-                                                                                onClick={() => {
-                                                                                    const next = [...selectedNode.data.actions];
-                                                                                    next[gi] = { or: selected ? (group.or ?? []).filter((o: string) => o !== a) : [...(group.or ?? []), a] };
-                                                                                    updateNodeData(selectedNode.id, { actions: next });
-                                                                                }}
-                                                                                style={{
-                                                                                    border: `1px solid ${selected ? "#d97706" : C.line}`,
-                                                                                    background: selected ? "#d97706" : C.paper,
-                                                                                    color: selected ? "#fff" : C.inkSoft,
-                                                                                    fontFamily: "'IBM Plex Sans'", fontWeight: 500, fontSize: 10,
-                                                                                    borderRadius: 4, padding: "3px 7px", cursor: "pointer",
-                                                                                }}
-                                                                            >
-                                                                                {a}
-                                                                            </button>
-                                                                        );
-                                                                    })}
+                                    {selectedNode.data.actions.map((group, gi) => {
+                                        const groupOpen = expandedCats[`grp-${gi}`] ?? true;
+                                        const groupSummary = (group.or ?? []).length > 0
+                                            ? `${(group.or ?? []).length} intervention${(group.or ?? []).length > 1 ? "s" : ""}`
+                                            : "empty";
+                                        return (
+                                            <div key={gi} className="rounded border" style={{ borderColor: C.line, overflow: "hidden" }}>
+                                                <div className="flex items-center justify-between px-2.5 py-1.5" style={{ background: C.paperDeep }}>
+                                                    <button
+                                                        onClick={() => toggleCat(`grp-${gi}`)}
+                                                        className="flex items-center gap-1.5"
+                                                        style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0 }}
+                                                    >
+                                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.inkFaint} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                                                            style={{ transform: groupOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
+                                                        >
+                                                            <polyline points="6 9 12 15 18 9" />
+                                                        </svg>
+                                                        <span className="text-[10px] font-mono font-semibold" style={{ color: C.inkFaint }}>
+                                                            {gi > 0 && <span style={{ color: "#d97706" }}>AND </span>}Group {gi + 1}
+                                                            <span style={{ color: C.inkFaint }}> ({groupSummary})</span>
+                                                        </span>
+                                                    </button>
+                                                    <GhostButton danger onClick={() => {
+                                                        const next = selectedNode.data.actions.filter((_: any, j: number) => j !== gi);
+                                                        updateNodeData(selectedNode.id, { actions: next });
+                                                    }}>×</GhostButton>
+                                                </div>
+                                                {groupOpen && (
+                                                    <div className="p-2 space-y-1">
+                                                        {Object.entries(MANAGEMENT_LIBRARY).map(([cat, catActions]) => {
+                                                            const catSelected = catActions.filter((a: string) => (group.or ?? []).includes(a));
+                                                            const isOpen = expandedCats[`req-${gi}-${cat}`] ?? catSelected.length > 0;
+                                                            return (
+                                                                <div key={cat} className="rounded" style={{ border: `1px solid ${C.line}`, overflow: "hidden" }}>
+                                                                    <button
+                                                                        onClick={() => toggleCat(`req-${gi}-${cat}`)}
+                                                                        style={{
+                                                                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                                                                            width: "100%", border: "none", background: catSelected.length > 0 ? "#d97706" : C.paperDeep,
+                                                                            padding: "4px 8px", cursor: "pointer",
+                                                                        }}
+                                                                    >
+                                                                        <span className="text-[10px] font-mono font-semibold" style={{ color: catSelected.length > 0 ? "#fff" : C.inkSoft }}>
+                                                                            {cat} {catSelected.length > 0 && <span>({catSelected.length})</span>}
+                                                                        </span>
+                                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={catSelected.length > 0 ? "#fff" : C.inkFaint} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                                                            style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+                                                                        >
+                                                                            <polyline points="6 9 12 15 18 9" />
+                                                                        </svg>
+                                                                    </button>
+                                                                    {isOpen && (
+                                                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 3, padding: "6px 8px" }}>
+                                                                            {catActions.map((a: string) => {
+                                                                                const selected = (group.or ?? []).includes(a);
+                                                                                const doses = MEDICATION_DOSES[a];
+                                                                                const currentDose = selectedNode.data.doseMap?.[a];
+                                                                                return (
+                                                                                    <div key={a} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                const next = [...selectedNode.data.actions];
+                                                                                                if (selected) {
+                                                                                                    next[gi] = { or: (group.or ?? []).filter((o: string) => o !== a) };
+                                                                                                    const nextDoseMap = { ...(selectedNode.data.doseMap ?? {}) };
+                                                                                                    delete nextDoseMap[a];
+                                                                                                    updateNodeData(selectedNode.id, { actions: next, doseMap: nextDoseMap });
+                                                                                                } else {
+                                                                                                    next[gi] = { or: [...(group.or ?? []), a] };
+                                                                                                    const defaultDose = doses?.find((d) => d.isDefault);
+                                                                                                    const doseMap = defaultDose
+                                                                                                        ? { ...(selectedNode.data.doseMap ?? {}), [a]: defaultDose.label }
+                                                                                                        : selectedNode.data.doseMap;
+                                                                                                    updateNodeData(selectedNode.id, { actions: next, doseMap });
+                                                                                                }
+                                                                                            }}
+                                                                                            style={{
+                                                                                                border: `1px solid ${selected ? "#d97706" : C.line}`,
+                                                                                                background: selected ? "#d97706" : C.paper,
+                                                                                                color: selected ? "#fff" : C.inkSoft,
+                                                                                                fontFamily: "'IBM Plex Sans'", fontWeight: 500, fontSize: 10,
+                                                                                                borderRadius: 4, padding: "3px 7px", cursor: "pointer",
+                                                                                            }}
+                                                                                        >
+                                                                                            {a}
+                                                                                        </button>
+                                                                                        {selected && doses && (
+                                                                                            <select
+                                                                                                value={currentDose ?? ""}
+                                                                                                onChange={(e) => {
+                                                                                                    const dose = e.target.value;
+                                                                                                    const current = selectedNode.data.doseMap ?? {};
+                                                                                                    if (dose) {
+                                                                                                        updateNodeData(selectedNode.id, { doseMap: { ...current, [a]: dose } });
+                                                                                                    } else {
+                                                                                                        const next = { ...current };
+                                                                                                        delete next[a];
+                                                                                                        updateNodeData(selectedNode.id, { doseMap: next });
+                                                                                                    }
+                                                                                                }}
+                                                                                                style={{
+                                                                                                    fontSize: 9,
+                                                                                                    fontFamily: "'IBM Plex Mono'",
+                                                                                                    padding: "1px 3px",
+                                                                                                    borderRadius: 3,
+                                                                                                    border: `1px solid ${C.line}`,
+                                                                                                    background: C.paper,
+                                                                                                    color: C.ink,
+                                                                                                    cursor: "pointer",
+                                                                                                }}
+                                                                                            >
+                                                                                                <option value="">Any dose</option>
+                                                                                                {doses.map((d) => (
+                                                                                                    <option key={d.label} value={d.label}>
+                                                                                                        {d.label}{d.isDefault ? " (default)" : ""}
+                                                                                                    </option>
+                                                                                                ))}
+                                                                                            </select>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 <GhostButton onClick={() => {
-                                    const first = MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0];
-                                    updateNodeData(selectedNode.id, { actions: [...selectedNode.data.actions, { or: [first] }] });
+                                    updateNodeData(selectedNode.id, { actions: [...selectedNode.data.actions, { or: [] }] });
                                 }} style={{ marginBottom: 6 }}>+ Add required group (AND)</GhostButton>
                                 <GhostButton danger onClick={() => deleteNode(selectedNode.id)} style={{ marginTop: 2 }}>Delete node</GhostButton>
                             </>
