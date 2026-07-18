@@ -114,6 +114,7 @@ export interface CaseData {
   exam: ExamFinding[];
   investigations: Investigation[];
   managementGraph: ManagementGraph;
+  historyGraph: HistoryGraph;
 }
 
 export interface OutcomeType {
@@ -172,6 +173,32 @@ export interface ModalProps {
   children: ReactNode;
   maxWidth?: string;
   zIndex?: string;
+}
+
+export type HistoryCategoryType = "signs_symptoms" | "past_history" | "medication" | "allergy" | "family_history" | "socioeconomics";
+
+export interface HistoryNodeData {
+  category: HistoryCategoryType;
+  question: string;
+  answer: string;
+}
+
+export interface HistoryNode {
+  id: string;
+  x: number;
+  y: number;
+  data: HistoryNodeData;
+}
+
+export interface HistoryEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface HistoryGraph {
+  nodes: HistoryNode[];
+  edges: HistoryEdge[];
 }
 
 export interface StepProps {

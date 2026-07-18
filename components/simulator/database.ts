@@ -1,4 +1,4 @@
-import type { VitalDef, OutcomeType, LabTest, NodeSize, NodeMeta, DoseEntry } from "./types";
+import type { VitalDef, OutcomeType, LabTest, NodeSize, NodeMeta, DoseEntry, HistoryCategoryType } from "./types";
 
 export const C = {
     paper: "#fafaf9",
@@ -279,6 +279,15 @@ export const MEDICATION_DOSES: Record<string, DoseEntry[]> = {
         { label: "25 g (1 amp)", isDefault: true },
     ],
 };
+
+export const HISTORY_CATEGORIES: { key: HistoryCategoryType; label: string; color: string; soft: string }[] = [
+    { key: "signs_symptoms", label: "Signs & Symptoms", color: "#4f7cff", soft: "#dbe5ff" },
+    { key: "past_history", label: "Past History", color: "#0a8f7a", soft: "#ccefe8" },
+    { key: "medication", label: "Medication", color: "#d98c2e", soft: "#f5e2c4" },
+    { key: "allergy", label: "Allergy", color: "#e6355a", soft: "#fde1e8" },
+    { key: "family_history", label: "Family History", color: "#7c5cfc", soft: "#ede9fe" },
+    { key: "socioeconomics", label: "Socioeconomics", color: "#ff6fa5", soft: "#ffe3ed" },
+];
 
 export const OUTCOME_TYPES: OutcomeType[] = [
     { key: "improved", label: "Improved", color: C.normal, soft: C.normalSoft },

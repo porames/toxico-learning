@@ -10,12 +10,13 @@ import type {
 } from "./types";
 import {
     C, FONT_LINK, LAB_LIBRARY, IMAGING_LIBRARY, EXAM_SYSTEMS,
-    MANAGEMENT_LIBRARY, OUTCOME_TYPES, VITAL_DEFS, DISEASES_DB,
+    MANAGEMENT_LIBRARY, OUTCOME_TYPES, VITAL_DEFS, DISEASES_DB, HISTORY_CATEGORIES,
 } from "./database";
 import {
     inputStyle, TextInput, TextArea, Field, PrimaryButton, GhostButton, Chip, Card, SectionHeading,
 } from "./ui";
 import StepManagement from "./GraphEditor";
+import StepHistory from "./HistoryGraphEditor";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -37,6 +38,10 @@ const emptyCase: CaseData = {
     investigations: [],
     managementGraph: {
         nodes: [{ id: "start", type: "start", x: 40, y: 260, data: {} }],
+        edges: [],
+    },
+    historyGraph: {
+        nodes: [],
         edges: [],
     },
 };
@@ -558,7 +563,7 @@ function StepReview({ data }: StepReviewProps) {
     const abnormalVitals = VITAL_DEFS.filter((v) => data.vitals[v.key].abnormal);
     return (
         <div>
-            <SectionHeading eyebrow="06 · Review" title="Case sheet" desc="This is how the case will read once published. Scroll back through the steps to make changes." />
+            <SectionHeading eyebrow="07 · Review" title="Case sheet" desc="This is how the case will read once published. Scroll back through the steps to make changes." />
             <Card style={{ padding: 24 }}>
                 <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11.5, color: C.accent, fontWeight: 600, letterSpacing: 1 }}>
                     {data.age || "—"} y/o {data.sex} · {data.chiefComplaint || "no chief complaint set"}
@@ -616,7 +621,25 @@ function StepReview({ data }: StepReviewProps) {
                     </div>
                 </div>
 
-                <div>
+                <div style={{ marginBottom: 22 }}>
+                    <div style={{ fontFamily: "'IBM Plex Sans'", fontSize: 12.5, fontWeight: 600, color: C.inkSoft, textTransform: "uppercase", marginBottom: 10 }}>
+                        History questions ({data.historyGraph?.nodes?.length ?? 0})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {(data.historyGraph?.nodes ?? []).map((n) => {
+                            const cat = HISTORY_CATEGORIES.find((c) => c.key === n.data.category);
+                            return (
+                                <div key={n.id} style={{ fontFamily: "'IBM Plex Sans'", fontSize: 13.5, color: C.ink }}>
+                                    {cat && <Chip color={cat.color} soft={cat.soft}>{cat.label}</Chip>}{" "}
+                                    {n.data.question || "No question"}
+                                </div>
+                            );
+                        })}
+                        {(data.historyGraph?.nodes?.length ?? 0) === 0 && <span style={{ color: C.inkFaint, fontSize: 13.5 }}>No history questions created yet.</span>}
+                    </div>
+                </div>
+
+                <div style={{ marginBottom: 22 }}>
                     {(() => {
                         const nodes = data.managementGraph.nodes;
                         const edges = data.managementGraph.edges;
@@ -663,10 +686,11 @@ function StepReview({ data }: StepReviewProps) {
 const STEPS = [
     { key: "background", label: "Background", num: "01" },
     { key: "vitals", label: "Vital signs", num: "02" },
-    { key: "exam", label: "Physical exam", num: "03" },
-    { key: "investigations", label: "Investigations", num: "04" },
-    { key: "management", label: "Management & outcomes", num: "05" },
-    { key: "review", label: "Case sheet", num: "06" },
+    { key: "history", label: "History taking", num: "03" },
+    { key: "exam", label: "Physical exam", num: "04" },
+    { key: "investigations", label: "Investigations", num: "05" },
+    { key: "management", label: "Management & outcomes", num: "06" },
+    { key: "review", label: "Case sheet", num: "07" },
 ];
 
 export default function CaseDesigner({ caseId: initialCaseId, sidebarOpen, setSidebarOpen }: { caseId?: string; sidebarOpen: boolean; setSidebarOpen: (v: boolean) => void }) {
@@ -771,6 +795,7 @@ export default function CaseDesigner({ caseId: initialCaseId, sidebarOpen, setSi
         let filled = 0;
         if (caseData.title && caseData.background) filled++;
         if (Object.values(caseData.vitals).some((v) => v.value)) filled++;
+        if ((caseData.historyGraph?.nodes?.length ?? 0) > 0) filled++;
         if (caseData.exam.length) filled++;
         if (caseData.investigations.length) filled++;
         if (caseData.managementGraph.nodes.length > 1) filled++;
@@ -859,10 +884,10 @@ export default function CaseDesigner({ caseId: initialCaseId, sidebarOpen, setSi
 
                     <div style={{ marginTop: 24, padding: "0 12px" }}>
                         <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10.5, color: C.inkFaint, marginBottom: 6 }}>
-                            {progress}/5 SECTIONS STARTED
+                            {progress}/6 SECTIONS STARTED
                         </div>
                         <div style={{ height: 4, background: C.line, borderRadius: 2, overflow: "hidden" }}>
-                            <div style={{ height: "100%", width: `${(progress / 5) * 100}%`, background: C.normal }} />
+                            <div style={{ height: "100%", width: `${(progress / 6) * 100}%`, background: C.normal }} />
                         </div>
                     </div>
                 </div>
@@ -915,10 +940,10 @@ export default function CaseDesigner({ caseId: initialCaseId, sidebarOpen, setSi
                     })}
                     <div style={{ marginTop: 24, padding: "0 12px" }}>
                         <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10.5, color: C.inkFaint, marginBottom: 6 }}>
-                            {progress}/5 SECTIONS STARTED
+                            {progress}/6 SECTIONS STARTED
                         </div>
                         <div style={{ height: 4, background: C.line, borderRadius: 2, overflow: "hidden" }}>
-                            <div style={{ height: "100%", width: `${(progress / 5) * 100}%`, background: C.normal }} />
+                            <div style={{ height: "100%", width: `${(progress / 6) * 100}%`, background: C.normal }} />
                         </div>
                     </div>
                 </div>
@@ -927,10 +952,11 @@ export default function CaseDesigner({ caseId: initialCaseId, sidebarOpen, setSi
                 <div style={{ flex: 1, padding: "32px 40px 80px", overflowX: "auto", minWidth: 0 }}>
                     {step === 0 && <StepBackground data={caseData} update={update} />}
                     {step === 1 && <StepVitals data={caseData} update={update} />}
-                    {step === 2 && <StepExam data={caseData} update={update} />}
-                    {step === 3 && <StepInvestigations data={caseData} update={update} caseId={caseId} />}
-                    {step === 4 && <StepManagement data={caseData} update={update} />}
-                    {step === 5 && <StepReview data={caseData} />}
+                    {step === 2 && <StepHistory data={caseData} update={update} />}
+                    {step === 3 && <StepExam data={caseData} update={update} />}
+                    {step === 4 && <StepInvestigations data={caseData} update={update} caseId={caseId} />}
+                    {step === 5 && <StepManagement data={caseData} update={update} />}
+                    {step === 6 && <StepReview data={caseData} />}
 
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 40, paddingTop: 20, borderTop: `1px solid ${C.line}` }}>
                         <GhostButton onClick={() => setStep((s) => Math.max(0, s - 1))} style={{ visibility: step === 0 ? "hidden" : "visible" }}>
