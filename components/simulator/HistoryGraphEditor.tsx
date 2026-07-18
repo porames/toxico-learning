@@ -30,7 +30,7 @@ export default function StepHistory({ data, update }: StepProps) {
     const canvasRef = useRef<HTMLDivElement>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [connectLine, setConnectLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-    const [scale] = useState(1);
+    const [scale, setScale] = useState(1);
     const [activeCat, setActiveCat] = useState<HistoryCategoryType>("signs_symptoms");
 
     const setGraph = (patch: Partial<HistoryGraph>) => update({ historyGraph: { ...graph, ...patch } });
@@ -164,6 +164,11 @@ export default function StepHistory({ data, update }: StepProps) {
                         {cat.label}
                     </button>
                 ))}
+                <div style={{ flex: 1 }} />
+                <span className="text-[11px] font-mono" style={{ color: C.inkFaint }}>{Math.round(scale * 100)}%</span>
+                <GhostButton onClick={() => setScale((s) => Math.max(0.25, s - 0.1))}>−</GhostButton>
+                <GhostButton onClick={() => setScale((s) => Math.min(3, s + 0.1))}>+</GhostButton>
+                <GhostButton onClick={() => setScale(1)}>Reset</GhostButton>
                 <PrimaryButton onClick={addNode} style={{ height: 37, marginLeft: 8 }}>
                     + Add question
                 </PrimaryButton>
@@ -193,40 +198,42 @@ export default function StepHistory({ data, update }: StepProps) {
                             overflow: "auto",
                         }}
                     >
-                        <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1 }}>
-                            {catEdges.map((e) => {
-                                const src = graph.nodes.find((n) => n.id === e.source);
-                                const tgt = graph.nodes.find((n) => n.id === e.target);
-                                if (!src || !tgt) return null;
-                                const x1 = src.x + NODE_W, y1 = src.y + NODE_H / 2;
-                                const x2 = tgt.x, y2 = tgt.y + NODE_H / 2;
-                                return (
-                                    <g key={e.id}>
-                                        <path d={edgePath(x1, y1, x2, y2)} fill="none" stroke={C.lineStrong} strokeWidth={2} />
-                                        <path
-                                            d={edgePath(x1, y1, x2, y2)}
-                                            fill="none"
-                                            stroke="transparent"
-                                            strokeWidth={16}
-                                            style={{ cursor: "pointer", pointerEvents: "all" }}
-                                            onClick={() => { setSelectedId(e.id); }}
-                                        />
-                                    </g>
-                                );
-                            })}
-                            {connectLine && (
-                                <path
-                                    d={edgePath(connectLine.x1, connectLine.y1, connectLine.x2, connectLine.y2)}
-                                    fill="none"
-                                    stroke={C.accent}
-                                    strokeWidth={2}
-                                    strokeDasharray="6 3"
-                                />
-                            )}
-                        </svg>
+                        <div style={{ width: 2000 * scale, height: 2000 * scale, position: "relative" }}>
+                            <div style={{ width: 2000, height: 2000, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
+                            <svg width="2000" height="2000" viewBox="0 0 2000 2000" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1 }}>
+                                {catEdges.map((e) => {
+                                    const src = graph.nodes.find((n) => n.id === e.source);
+                                    const tgt = graph.nodes.find((n) => n.id === e.target);
+                                    if (!src || !tgt) return null;
+                                    const x1 = src.x + NODE_W, y1 = src.y + NODE_H / 2;
+                                    const x2 = tgt.x, y2 = tgt.y + NODE_H / 2;
+                                    return (
+                                        <g key={e.id}>
+                                            <path d={edgePath(x1, y1, x2, y2)} fill="none" stroke={C.lineStrong} strokeWidth={2} />
+                                            <path
+                                                d={edgePath(x1, y1, x2, y2)}
+                                                fill="none"
+                                                stroke="transparent"
+                                                strokeWidth={16}
+                                                style={{ cursor: "pointer", pointerEvents: "all" }}
+                                                onClick={() => { setSelectedId(e.id); }}
+                                            />
+                                        </g>
+                                    );
+                                })}
+                                {connectLine && (
+                                    <path
+                                        d={edgePath(connectLine.x1, connectLine.y1, connectLine.x2, connectLine.y2)}
+                                        fill="none"
+                                        stroke={C.accent}
+                                        strokeWidth={2}
+                                        strokeDasharray="6 3"
+                                    />
+                                )}
+                            </svg>
 
-                        <div style={{ position: "relative", minWidth: 800, minHeight: 480, zIndex: 2, pointerEvents: "none" }}>
-                            {catNodes.map((node) => {
+                            <div style={{ position: "relative", zIndex: 2, pointerEvents: "none" }}>
+                                {catNodes.map((node) => {
                                 const cat = catDef(node.data.category);
                                 const sel = selectedId === node.id;
                                 return (
@@ -310,6 +317,8 @@ export default function StepHistory({ data, update }: StepProps) {
                                     </div>
                                 );
                             })}
+                        </div>
+                        </div>
                         </div>
                     </div>
 
