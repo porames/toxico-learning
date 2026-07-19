@@ -17,12 +17,14 @@ import {
 
 export default function EnrolStudents({ classId }: { classId: string }) {
     const [students, setStudents] = useState<Student[] | undefined>(undefined);
+    const [studentsLoading, setStudentsLoading] = useState(false);
     const [selectedStudents, setSelectedStudents] = useState<Student[] | []>([]);
     const [enrolling, setEnrolling] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     async function loadStudents() {
         setError(null);
+        setStudentsLoading(true);
         try {
             const auth = getAuth();
             const user = auth.currentUser;
@@ -53,6 +55,8 @@ export default function EnrolStudents({ classId }: { classId: string }) {
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
             setStudents([]);
+        } finally {
+            setStudentsLoading(false);
         }
     }
 
@@ -129,7 +133,7 @@ export default function EnrolStudents({ classId }: { classId: string }) {
                         <div>
                             <h1 className="text-sm font-semibold text-gray-900">Enrolled students</h1>
                             <p className="text-xs text-gray-500">
-                                {students === undefined
+                                {students === undefined || studentsLoading
                                     ? "Loading roster…"
                                     : `${students.length} student${students.length === 1 ? "" : "s"} enrolled`}
                             </p>
@@ -149,7 +153,7 @@ export default function EnrolStudents({ classId }: { classId: string }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {students === undefined ? (
+                            {studentsLoading || students === undefined ? (
                                 Array.from({ length: 4 }).map((_, i) => (
                                     <tr key={i}>
                                         <td colSpan={columnCount} className="px-5 py-3">

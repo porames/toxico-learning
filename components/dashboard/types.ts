@@ -1,4 +1,4 @@
-export type MaterialType = "youtube" | "pdf" | "link" | "text" | "file" | "video";
+export type MaterialType = "youtube" | "pdf" | "link" | "text" | "file" | "video" | "quiz";
 
 export interface Material {
   id: string;
@@ -6,6 +6,7 @@ export interface Material {
   title: string;
   /** youtube -> video URL, link -> URL, text -> body copy, pdf -> unused for now */
   value: string;
+  requiredPostTest?: boolean;
 }
 
 export interface Lecture {
@@ -54,8 +55,9 @@ export interface Student {
 export const MATERIAL_LABELS: Record<MaterialType, string> = {
   youtube: "YouTube video",
   pdf: "PDF file",
-  link: "External link",
-  text: "Text",
+  link: "Link",
+  text: "Note",
   file: "Attached file",
-  video: "Video"
+  video: "Video",
+  quiz: "Quiz"
 };

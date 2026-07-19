@@ -29,11 +29,11 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, FileQuestion, X } from "lucide-react";
 import moment from "moment";
 
 const fieldClass =
-  "w-full rounded-lg border border-ink-900/12 bg-white px-3 py-2 text-[14px] text-ink-900 placeholder:text-ink-300 transition focus:border-iris-500 focus:ring-4 focus:ring-iris-500/15";
+  "w-full rounded-md bg-white px-3 py-2 text-[14px] text-ink-900 placeholder:text-ink-300 outline-1 -outline-offset-1 outline-ink-900/15 focus:outline-2 focus:-outline-offset-2 focus:outline-iris-500 transition";
 const labelClass = "mb-1.5 block text-[12.5px] font-medium text-ink-700";
 
 
@@ -42,15 +42,17 @@ export function defaultMaterialTitle(type: MaterialType) {
     case "youtube":
       return "New video";
     case "pdf":
-      return "New PDF";
+      return "New file";
     case "file":
-      return "New attached file";
+      return "New file";
     case "link":
       return "New link";
     case "text":
       return "New note";
     case "video":
       return "New video";
+    case "quiz":
+      return "New quiz";
   }
 }
 
@@ -259,6 +261,7 @@ export function LectureEditor({
   const [materialsLoading, setMaterialsLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [order, setOrder] = useState<string[]>([]);
+  const [showQuizPicker, setShowQuizPicker] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -277,7 +280,8 @@ export function LectureEditor({
           id: doc.id,
           type: doc.data()?.type,
           title: doc.data()?.title,
-          value: doc.data()?.value
+          value: doc.data()?.value,
+          requiredPostTest: doc.data()?.requiredPostTest ?? false
         }));
         const lecOrder = lecture.materialsOrder;
         if (lecOrder && lecOrder.length > 0) {
@@ -301,7 +305,7 @@ export function LectureEditor({
     loadLecture();
   }, [classId, lecture.id, lecture.materialsOrder]);
 
-  const materialTypes: MaterialType[] = ["youtube", "pdf", "link", "text", "file", "video"];
+  const materialTypes: MaterialType[] = ["video", "file", "link", "text", "quiz"];
   function dateToStringInput(date: Date) {
     const offset = date.getTimezoneOffset();
     const localDate = new Date(date.getTime() - offset * 60 * 1000);
@@ -338,6 +342,31 @@ export function LectureEditor({
     );
     console.log(materials);
   };
+
+  async function addMaterialWithQuiz(quizId: string, quizTitle: string) {
+    const docRef = await addDoc(collection(db, "classes", classId, "lectures", lecture.id, "materials"), {
+      type: "quiz",
+      title: quizTitle,
+      value: quizId,
+      createdAt: serverTimestamp()
+    });
+    const newMaterial: Material = { id: docRef.id, type: "quiz", title: quizTitle, value: quizId };
+    const newOrder = [...order, docRef.id];
+    setOrder(newOrder);
+    setMaterials([...materials, newMaterial]);
+    await updateDoc(
+      doc(db, "classes", classId, "lectures", lecture.id),
+      { materialsOrder: newOrder }
+    );
+  }
+
+  function handleAddMaterial(type: MaterialType) {
+    if (type === "quiz") {
+      setShowQuizPicker(true);
+    } else {
+      addMaterial(type);
+    }
+  }
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -376,6 +405,7 @@ export function LectureEditor({
           if (material.type !== undefined) patch.type = material.type;
           if (material.title !== undefined) patch.title = material.title;
           if (material.value !== undefined) patch.value = material.value;
+          if (material.requiredPostTest !== undefined) patch.requiredPostTest = material.requiredPostTest;
 
           return updateDoc(
             doc(db, "classes", classId, "lectures", lecture.id, "materials", material.id),
@@ -442,48 +472,48 @@ export function LectureEditor({
         </div>
       </div>
 
-        <div className="mt-9 border-t border-ink-900/10 pt-6">
-          <p className="text-[13.5px] font-medium text-ink-900">
-            Class materials
-            <span className="ml-1.5 font-normal text-ink-300">({materials.length})</span>
-          </p>
+      <div className="mt-9 border-t border-ink-900/10 pt-6">
+        <p className="text-[13.5px] font-medium text-ink-900">
+          Class materials
+          <span className="ml-1.5 font-normal text-ink-300">({materials.length})</span>
+        </p>
 
-          {materialsLoading ? (
-            <div className="flex items-center justify-center gap-2 py-8">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-ink-900/10 border-t-iris-600" />
-              <span className="text-[13px] text-ink-500">Loading materials…</span>
-            </div>
-          ) : materials.length === 0 ? (
-            <p className="py-4 text-center text-[13px] text-ink-400">No materials yet.</p>
-          ) : (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={order} strategy={verticalListSortingStrategy}>
-                <div className="mt-4 space-y-3">
-                  {materials.map((mat) => (
-                    <MaterialCard
-                      key={mat.id}
-                      id={mat.id}
-                      material={mat}
-                      classId={classId}
-                      lectureId={lecture.id}
-                      highlighted={mat.id === highlightMaterialId}
-                      onUpdate={(patch) => updateMaterial(mat.id, patch)}
-                      onDelete={() => {
-                        const newOrder = order.filter(id => id !== mat.id);
-                        setOrder(newOrder);
-                        setMaterials(materials.filter(m => m.id !== mat.id));
-                        updateDoc(
-                          doc(db, "classes", classId, "lectures", lecture.id),
-                          { materialsOrder: newOrder }
-                        );
-                        onDeleteMaterial(mat.id);
-                      }}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
+        {materialsLoading ? (
+          <div className="flex items-center justify-center gap-2 py-8">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-ink-900/10 border-t-iris-600" />
+            <span className="text-[13px] text-ink-500">Loading materials…</span>
+          </div>
+        ) : materials.length === 0 ? (
+          <p className="py-4 text-center text-[13px] text-ink-400">No materials yet.</p>
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={order} strategy={verticalListSortingStrategy}>
+              <div className="mt-4 space-y-3">
+                {materials.map((mat) => (
+                  <MaterialCard
+                    key={mat.id}
+                    id={mat.id}
+                    material={mat}
+                    classId={classId}
+                    lectureId={lecture.id}
+                    highlighted={mat.id === highlightMaterialId}
+                    onUpdate={(patch) => updateMaterial(mat.id, patch)}
+                    onDelete={() => {
+                      const newOrder = order.filter(id => id !== mat.id);
+                      setOrder(newOrder);
+                      setMaterials(materials.filter(m => m.id !== mat.id));
+                      updateDoc(
+                        doc(db, "classes", classId, "lectures", lecture.id),
+                        { materialsOrder: newOrder }
+                      );
+                      onDeleteMaterial(mat.id);
+                    }}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
 
         <div className="mt-4">
           <p className="mb-2 text-[12.5px] font-medium text-ink-500">Add material</p>
@@ -496,7 +526,7 @@ export function LectureEditor({
                   key={type}
                   type="button"
                   disabled={materialsLoading}
-                  onClick={() => addMaterial(type)}
+                  onClick={() => handleAddMaterial(type)}
                   className={`flex items-center gap-1.5 rounded-lg border border-ink-900/10 bg-white px-3 py-1.5 text-[12.5px] font-medium text-ink-700 shadow-soft transition hover:border-transparent hover:${color.bg} disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <span className={`flex h-4 w-4 items-center justify-center rounded ${color.bg} ${color.text}`}>
@@ -510,6 +540,16 @@ export function LectureEditor({
         </div>
       </div>
 
+      {showQuizPicker && (
+        <QuizPickerModal
+          onSelect={(quizId, quizTitle) => {
+            addMaterialWithQuiz(quizId, quizTitle);
+            setShowQuizPicker(false);
+          }}
+          onClose={() => setShowQuizPicker(false)}
+        />
+      )}
+
       <button
         type="button"
         onClick={onDelete}
@@ -517,6 +557,89 @@ export function LectureEditor({
       >
         Delete this lecture
       </button>
+    </div>
+  );
+}
+
+function QuizPickerModal({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (quizId: string, quizTitle: string) => void;
+  onClose: () => void;
+}) {
+  const [quizzes, setQuizzes] = useState<{ id: string; title: string; questions: any[] }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const snap = await getDocs(collection(db, "quizzes"));
+        setQuizzes(snap.docs.map((d) => ({ id: d.id, title: d.data().title || "Untitled", questions: d.data().questions || [] })));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="mx-4 w-full max-w-lg rounded-xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-ink-900/10 px-5 py-4">
+          <p className="text-[15px] font-semibold text-ink-900">Link a quiz</p>
+          <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-ink-400 hover:bg-ink-900/5 hover:text-ink-700">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="max-h-80 overflow-y-auto px-5 py-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-ink-900/10 border-t-iris-600" />
+            </div>
+          ) : quizzes.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-ink-400">
+              No quizzes yet.{" "}
+              <button
+                onClick={() => { onClose(); window.open("/quiz/new", "_blank"); }}
+                className="text-iris-600 underline hover:text-iris-700"
+              >
+                Create one
+              </button>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {quizzes.map((q) => (
+                <button
+                  key={q.id}
+                  onClick={() => onSelect(q.id, q.title)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-ink-900/10 px-4 py-3 text-left transition hover:border-iris-400 hover:bg-iris-50"
+                >
+                  <FileQuestion className="h-5 w-5 shrink-0 text-iris-500" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-medium text-ink-900">{q.title}</p>
+                    <p className="text-[12px] text-ink-400">{q.questions.length} questions</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="border-t border-ink-900/10 mt-3 pt-3">
+            <button
+              onClick={() => { onClose(); window.open("/quiz/new", "_blank"); }}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink-900/15 px-3 py-2 text-[13px] font-medium text-iris-600 transition hover:border-iris-400 hover:bg-iris-50"
+            >
+              <PlusIcon className="h-3.5 w-3.5" />
+              Create new quiz
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -547,14 +670,19 @@ function MaterialCard({
   };
   const Icon = MATERIAL_ICON[material.type];
   const color = MATERIAL_COLOR[material.type];
+  const [videoMode, setVideoMode] = useState<"youtube" | "upload">("youtube");
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [videoId, setVideoId] = useState(material.value || "");
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [requiredPostTest, setRequiredPostTest] = useState(material.requiredPostTest ?? false);
   const [pdfUploading, setPdfUploading] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfUrl, setPdfUrl] = useState(material.type === "pdf" ? material.value || "" : "");
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileProgress, setFileProgress] = useState(0);
+  const [fileUrl, setFileUrl] = useState(material.type === "file" ? material.value || "" : "");
 
   useEffect(() => {
     if (!videoId) { setEmbedUrl(null); return; }
@@ -661,11 +789,35 @@ function MaterialCard({
     }
   }
 
+  async function handleFileUpload(file: File) {
+    setFileUploading(true);
+    setFileProgress(0);
+    try {
+      const storageRef = ref(storage, `materials/${material.id}`);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+      uploadTask.on("state_changed", (snapshot) => {
+        setFileProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+      });
+      await uploadTask;
+      const downloadUrl = await getDownloadURL(storageRef);
+      setFileUrl(downloadUrl);
+      onUpdate({ value: downloadUrl });
+      await updateDoc(
+        doc(db, "classes", classId, "lectures", lectureId, "materials", material.id),
+        { value: downloadUrl }
+      );
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setFileUploading(false);
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`rounded-xl border bg-white p-3.5 transition ${highlighted ? `border-transparent ring-2 ${color.ring}` : "border-ink-900/10"
+      className={`rounded-xl border bg-white p-3.5 ${highlighted ? `border-transparent ring-2 ${color.ring}` : "border-ink-900/10"
         }`}
     >
       <div className="flex items-start gap-1.5">
@@ -679,228 +831,372 @@ function MaterialCard({
           <GripVertical className="h-4 w-4" />
         </button>
         <div className="flex items-start gap-2.5 min-w-0 flex-1">
-        <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-          <Icon className="h-3.5 w-3.5" />
-        </span>
+          <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+            <Icon className="h-3.5 w-3.5" />
+          </span>
 
-        <div className="min-w-0 flex-1 space-y-2">
-          <input
-            value={material.title}
-            onChange={(e) => onUpdate({ title: e.target.value })}
-            placeholder="Material title"
-            className="w-full border-b border-transparent bg-transparent text-[13.5px] font-medium text-ink-900 outline-none placeholder:text-ink-300 focus:border-iris-400"
-          />
+          <div className="min-w-0 flex-1 space-y-2">
+            <input
+              value={material.title}
+              onChange={(e) => onUpdate({ title: e.target.value })}
+              placeholder="Material title"
+              className="w-full rounded-md bg-white px-3 py-2 text-[13.5px] font-medium text-ink-900 placeholder:text-ink-300 outline-1 -outline-offset-1 outline-ink-900/15 focus:outline-2 focus:-outline-offset-2 focus:outline-iris-500 transition"
+            />
 
-          {material.type === "youtube" && (
-            <div className="space-y-2">
+            {material.type === "youtube" && (
+              <div className="space-y-2">
+                <input
+                  value={material.value}
+                  onChange={(e) => onUpdate({ value: e.target.value })}
+                  placeholder="https://youtube.com/watch?v=..."
+                  className={`${fieldClass} !py-1.5 !text-[13px] ${material.value && !getYoutubeVideoId(material.value) ? "outline-red-400 focus:outline-red-500" : ""}`}
+                />
+                {material.value && !getYoutubeVideoId(material.value) && (
+                  <p className="text-[12px] text-red-500">Please enter a valid YouTube link</p>
+                )}
+                {getYoutubeVideoId(material.value) && (
+                  <div className="overflow-hidden rounded-lg border border-ink-900/8">
+                    <div className="aspect-video">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${getYoutubeVideoId(material.value)}`}
+                        className="h-full w-full"
+                        allow="autoplay; encrypted-media; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {material.type === "link" && (
               <input
                 value={material.value}
                 onChange={(e) => onUpdate({ value: e.target.value })}
-                placeholder="https://youtube.com/watch?v=..."
-                className={`${fieldClass} !py-1.5 !text-[13px] ${material.value && !getYoutubeVideoId(material.value) ? "border-red-400 focus:border-red-500 focus:ring-red-500/15" : ""}`}
+                placeholder="https://example.com/resource"
+                className={`${fieldClass} !py-1.5 !text-[13px]`}
               />
-              {material.value && !getYoutubeVideoId(material.value) && (
-                <p className="text-[12px] text-red-500">Please enter a valid YouTube link</p>
-              )}
-              {getYoutubeVideoId(material.value) && (
-                <div className="overflow-hidden rounded-lg border border-ink-900/8">
-                  <div className="aspect-video">
-                    <iframe
-                      src={`https://www.youtube.com/embed/${getYoutubeVideoId(material.value)}`}
-                      className="h-full w-full"
-                      allow="autoplay; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {material.type === "link" && (
-            <input
-              value={material.value}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              placeholder="https://example.com/resource"
-              className={`${fieldClass} !py-1.5 !text-[13px]`}
-            />
-          )}
+            {material.type === "text" && (
+              <textarea
+                value={material.value}
+                onChange={(e) => onUpdate({ value: e.target.value })}
+                placeholder="Write the note or instructions here…"
+                rows={3}
+                className={`${fieldClass} resize-none !py-1.5 !text-[13px]`}
+              />
+            )}
 
-          {material.type === "text" && (
-            <textarea
-              value={material.value}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              placeholder="Write the note or instructions here…"
-              rows={3}
-              className={`${fieldClass} resize-none !py-1.5 !text-[13px]`}
-            />
-          )}
-
-          {material.type === "pdf" && (
-            <div className="space-y-2">
-              {!pdfUrl ? (
-                <div className="flex items-center gap-3">
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
-                    <PdfUploadIcon />
-                    {pdfUploading ? `Uploading ${pdfProgress}%` : "Choose PDF file"}
-                    <input
-                      type="file"
-                      accept="application/pdf"
-                      className="hidden"
-                      disabled={pdfUploading}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handlePdfUpload(file);
-                      }}
-                    />
-                  </label>
-                  {pdfUploading && (
-                    <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-iris-500 transition-all duration-300"
-                        style={{ width: `${pdfProgress}%` }}
+            {material.type === "pdf" && (
+              <div className="space-y-2">
+                {!pdfUrl ? (
+                  <div className="flex items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
+                      <PdfUploadIcon />
+                      {pdfUploading ? `Uploading ${pdfProgress}%` : "Choose PDF file"}
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        disabled={pdfUploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handlePdfUpload(file);
+                        }}
                       />
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path d="M20 6L9 17l-5-5" />
-                  </svg>
-                  <a
-                    href={pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-emerald-700 truncate max-w-[200px]"
-                  >
-                    View PDF
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPdfUrl("");
-                      onUpdate({ value: "" });
-                    }}
-                    className="text-[12px] text-ink-400 hover:text-red-500 underline ml-auto"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {material.type === "video" && (
-            <div className="space-y-2">
-              {!videoId ? (
-                <div className="flex items-center gap-3">
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
-                    <VideoUploadIcon />
-                    {uploading ? `Uploading ${progress}%` : "Choose video file"}
-                    <input
-                      type="file"
-                      accept="video/*"
-                      className="hidden"
-                      disabled={uploading}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleVideoUpload(file);
-                      }}
-                    />
-                  </label>
-                  {uploading && (
-                    <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-iris-500 transition-all duration-300"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {embedUrl ? (
-                    <div className="overflow-hidden rounded-lg border border-ink-900/8">
-                      <div className="aspect-video">
-                        <iframe
-                          src={embedUrl}
-                          className="h-full w-full"
-                          allow="autoplay; encrypted-media; picture-in-picture"
-                          allowFullScreen
+                    </label>
+                    {pdfUploading && (
+                      <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-iris-500 transition-all duration-300"
+                          style={{ width: `${pdfProgress}%` }}
                         />
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-[12.5px] text-ink-500">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-ink-900/10 border-t-iris-600" />
-                      Loading video…
-                    </div>
-                  )}
+                    )}
+                  </div>
+                ) : (
                   <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
                       <path d="M20 6L9 17l-5-5" />
                     </svg>
-                    Video uploaded
+                    <a
+                      href={pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-emerald-700 truncate max-w-[200px]"
+                    >
+                      View PDF
+                    </a>
                     <button
                       type="button"
                       onClick={() => {
-                        setVideoId("");
-                        setEmbedUrl(null);
+                        setPdfUrl("");
                         onUpdate({ value: "" });
                       }}
-                      className="text-[12px] text-ink-400 hover:text-red-500 underline ml-2"
+                      className="text-[12px] text-ink-400 hover:text-red-500 underline ml-auto"
                     >
                       Remove
                     </button>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                )}
+              </div>
+            )}
 
-        <button
-          type="button"
-          disabled={deleting}
-          onClick={async () => {
-            if (deleting) return;
-            setDeleting(true);
-            try {
-              if (material.type === "video" && videoId) {
-                const token = await auth.currentUser?.getIdToken();
-                await fetch(
-                  "https://us-central1-rama-toxico-edu.cloudfunctions.net/deleteVideo",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({ videoId }),
-                  }
-                );
+            {material.type === "file" && (
+              <div className="space-y-2">
+                {!fileUrl ? (
+                  <div className="flex items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
+                      <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" strokeLinecap="round" strokeLinejoin="round" />
+                        <polyline points="14 2 14 8 20 8" strokeLinecap="round" strokeLinejoin="round" />
+                        <line x1="12" y1="18" x2="12" y2="12" strokeLinecap="round" strokeLinejoin="round" />
+                        <line x1="9" y1="15" x2="12" y2="12" strokeLinecap="round" strokeLinejoin="round" />
+                        <line x1="15" y1="15" x2="12" y2="12" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {fileUploading ? `Uploading ${fileProgress}%` : "Choose file"}
+                      <input
+                        type="file"
+                        accept="image/*,.ppt,.pptx,.docx,.pdf"
+                        className="hidden"
+                        disabled={fileUploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file);
+                        }}
+                      />
+                    </label>
+                    {fileUploading && (
+                      <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-iris-500 transition-all duration-300"
+                          style={{ width: `${fileProgress}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                    <a
+                      href={fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-emerald-700 truncate max-w-[200px]"
+                    >
+                      View file
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFileUrl("");
+                        onUpdate({ value: "" });
+                      }}
+                      className="text-[12px] text-ink-400 hover:text-red-500 underline ml-auto"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {material.type === "quiz" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <FileQuestion className="h-5 w-5 shrink-0 text-iris-500" />
+                  <span className="text-[13px] text-ink-700">{material.title || "Untitled quiz"}</span>
+                  {material.value && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(`/quiz/${material.value}`, "_blank");
+                      }}
+                      className="ml-auto text-[12px] font-medium text-iris-600 underline hover:text-iris-700"
+                    >
+                      Edit quiz
+                    </button>
+                  )}
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-600">
+                  <input
+                    type="checkbox"
+                    checked={requiredPostTest}
+                    onChange={async (e) => {
+                      const checked = e.target.checked;
+                      setRequiredPostTest(checked);
+                      try {
+                        await updateDoc(
+                          doc(db, "classes", classId, "lectures", lectureId, "materials", material.id),
+                          { requiredPostTest: checked }
+                        );
+                      } catch (err) {
+                        console.error(err);
+                        setRequiredPostTest(!checked);
+                      }
+                    }}
+                    className="h-3.5 w-3.5 rounded border-ink-900/20 text-iris-500"
+                  />
+                  Required post-test
+                </label>
+              </div>
+            )}
+
+            {material.type === "video" && (
+              <div className="space-y-2">
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setVideoMode("youtube")}
+                    className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${videoMode === "youtube" ? "bg-iris-600 text-white" : "bg-ink-900/5 text-ink-700 hover:bg-ink-900/10"}`}
+                  >
+                    YouTube
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVideoMode("upload")}
+                    className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${videoMode === "upload" ? "bg-iris-600 text-white" : "bg-ink-900/5 text-ink-700 hover:bg-ink-900/10"}`}
+                  >
+                    Upload
+                  </button>
+                </div>
+
+                {videoMode === "youtube" ? (
+                  <div className="space-y-2">
+                    <input
+                      value={material.value}
+                      onChange={(e) => onUpdate({ value: e.target.value })}
+                      placeholder="https://youtube.com/watch?v=..."
+                      className={`${fieldClass} !py-1.5 !text-[13px] ${material.value && !getYoutubeVideoId(material.value) ? "outline-red-400 focus:outline-red-500" : ""}`}
+                    />
+                    {material.value && !getYoutubeVideoId(material.value) && (
+                      <p className="text-[12px] text-red-500">Please enter a valid YouTube link</p>
+                    )}
+                    {material.value && getYoutubeVideoId(material.value) && (
+                      <div className="overflow-hidden rounded-lg border border-ink-900/8">
+                        <div className="aspect-video">
+                          <iframe
+                            src={`https://www.youtube.com/embed/${getYoutubeVideoId(material.value)}`}
+                            className="h-full w-full"
+                            allow="autoplay; encrypted-media; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : !videoId ? (
+                  <div className="flex items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
+                      <VideoUploadIcon />
+                      {uploading ? `Uploading ${progress}%` : "Choose video file"}
+                      <input
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        disabled={uploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleVideoUpload(file);
+                        }}
+                      />
+                    </label>
+                    {uploading && (
+                      <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-iris-500 transition-all duration-300"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {embedUrl ? (
+                      <div className="overflow-hidden rounded-lg border border-ink-900/8">
+                        <div className="aspect-video">
+                          <iframe
+                            src={embedUrl}
+                            className="h-full w-full"
+                            allow="autoplay; encrypted-media; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-[12.5px] text-ink-500">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-ink-900/10 border-t-iris-600" />
+                        Loading video…
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                      Video uploaded
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVideoId("");
+                          setEmbedUrl(null);
+                          onUpdate({ value: "" });
+                        }}
+                        className="text-[12px] text-ink-400 hover:text-red-500 underline ml-2"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={async () => {
+              if (deleting) return;
+              setDeleting(true);
+              try {
+                if (material.type === "video" && videoId) {
+                  const token = await auth.currentUser?.getIdToken();
+                  await fetch(
+                    "https://us-central1-rama-toxico-edu.cloudfunctions.net/deleteVideo",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ videoId }),
+                    }
+                  );
+                }
+                if (material.type === "pdf" && pdfUrl) {
+                  await deleteObject(ref(storage, `materials/${material.id}`));
+                }
+              } catch (err) {
+                console.error(err);
+              } finally {
+                setDeleting(false);
+                onDelete();
               }
-              if (material.type === "pdf" && pdfUrl) {
-                await deleteObject(ref(storage, `materials/${material.id}`));
-              }
-            } catch (err) {
-              console.error(err);
-            } finally {
-              setDeleting(false);
-              onDelete();
-            }
-          }}
-          aria-label="Delete material"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-300 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
-        >
-          {deleting ? (
-            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-ink-900/10 border-t-red-500" />
-          ) : (
-            <TrashIcon className="h-3.5 w-3.5" />
-          )}
-        </button>
-      </div>
+            }}
+            aria-label="Delete material"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-300 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+          >
+            {deleting ? (
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-ink-900/10 border-t-red-500" />
+            ) : (
+              <TrashIcon className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

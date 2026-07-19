@@ -85,6 +85,16 @@ export function LinkIcon({ className }: IconProps) {
   );
 }
 
+export function QuizIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <path d="M9.5 12.5 12 15l4-4" />
+    </svg>
+  );
+}
+
 export function TextIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -99,7 +109,8 @@ export const MATERIAL_ICON: Record<MaterialType, (p: IconProps) => JSX.Element> 
   link: LinkIcon,
   text: TextIcon,
   file: PdfIcon,
-  video: PlayIcon
+  video: PlayIcon,
+  quiz: QuizIcon
 };
 
 export const MATERIAL_COLOR: Record<MaterialType, { text: string; bg: string; ring: string }> = {
@@ -109,4 +120,5 @@ export const MATERIAL_COLOR: Record<MaterialType, { text: string; bg: string; ri
   text: { text: "text-mesh-teal", bg: "bg-mesh-teal/10", ring: "ring-mesh-teal/25" },
   file: { text: "text-mesh-sky", bg: "bg-mesh-sky/10", ring: "ring-mesh-sky/25" },
   video: { text: "text-rose-500", bg: "bg-rose-500/10", ring: "ring-rose-500/25" },
+  quiz: { text: "text-iris-600", bg: "bg-iris-500/10", ring: "ring-iris-500/25" },
 };

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { ClassItem, Lecture, Selection, CompletedLecture } from "../dashboard/types";
-import { ChevronLeft, FileText, Link as LinkIcon, Video, File, LogOut, ExternalLink, Check, MessageCircleWarning } from "lucide-react";
+import { ChevronLeft, FileText, Link as LinkIcon, Video, File, LogOut, ExternalLink, Check, MessageCircleWarning, FileQuestion } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { addDoc, collection, getDocs, query, where, serverTimestamp, setDoc, doc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
@@ -10,6 +10,7 @@ import formatTimeRange from "@/lib/formatTimeRange";
 import { MATERIAL_COLOR } from "../dashboard/icons";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import moment from "moment";
+import QuizTaker from "../quiz/QuizTaker";
 
 // Groups lectures by calendar day (using local time, not UTC) and returns
 // them keyed by "YYYY-MM-DD", sorted chronologically within each day.
@@ -67,6 +68,8 @@ function materialTypeLabel(type: string): string {
             return "PDF";
         case "text":
             return "Note";
+        case "quiz":
+            return "Quiz";
         default:
             return "File";
     }
@@ -101,12 +104,18 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     const [completedLecs, setCompletedLecs] = useState<CompletedLecture[]>([]);
     const [completingLec, setCompletingLec] = useState(false);
     const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
+    const [displayQuiz, setDisplayQuiz] = useState<string | null>(null);
+    const [userProfile, setUserProfile] = useState<{
+        name: string;
+        email: string;
+        year: string;
+    } | null>(null);
     const router = useRouter();
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             if (!currentUser) {
-router.push("/");
+                router.push("/");
             } else {
                 setUser(currentUser);
             }
@@ -145,6 +154,11 @@ router.push("/");
                     throw new Error("User document not found");
                 }
                 const userDoc = snapshotUser.docs[0];
+                setUserProfile({
+                    name: userDoc.data().name ?? user.displayName ?? "User",
+                    email: userDoc.data().email ?? user.email ?? "",
+                    year: userDoc.data().year ?? "",
+                });
                 console.time("getDocs completedLectures");
                 const completedLecSnap = await getDocs(
                     collection(db, "users", userDoc.id, "completedLectures")
@@ -215,14 +229,14 @@ router.push("/");
 
         setMaterialsLoading(true);
         setMaterialsError(null);
-            try {
-                console.log("=== Loading materials for lecture:", lec.id, "===");
-                console.time("getDocs materials");
-                const snapshot = await getDocs(
-                    collection(db, "classes", classId, "lectures", lec.id, "materials")
-                );
-                console.timeEnd("getDocs materials");
-                console.log("materials count:", snapshot.docs.length);
+        try {
+            console.log("=== Loading materials for lecture:", lec.id, "===");
+            console.time("getDocs materials");
+            const snapshot = await getDocs(
+                collection(db, "classes", classId, "lectures", lec.id, "materials")
+            );
+            console.timeEnd("getDocs materials");
+            console.log("materials count:", snapshot.docs.length);
             const materials = snapshot.docs.map((doc) => ({
                 id: doc.id,
                 type: doc.data().type,
@@ -276,7 +290,10 @@ router.push("/");
                     );
                     if (res.ok) {
                         const { embedUrl } = await res.json();
-                        setVideoUrls((prev) => ({ ...prev, [mat.id]: embedUrl }));
+                        const url = embedUrl.includes("?")
+                            ? embedUrl + "&autoplay=false"
+                            : embedUrl + "?autoplay=false";
+                        setVideoUrls((prev) => ({ ...prev, [mat.id]: url }));
                     }
                 } catch (err) {
                     console.error(err);
@@ -296,46 +313,48 @@ router.push("/");
                 return <FileText size={16} className="shrink-0" />;
             case "text":
                 return <MessageCircleWarning size={16} className="shrink-0" />;
+            case "quiz":
+                return <FileQuestion size={16} className="shrink-0" />;
             default:
                 return <File size={16} className="shrink-0" />;
         }
     }
     async function completedLec() {
-        if (selection?.level == "lecture" && user !== null) {
-            setCompletingLec(true);
-            try {
-                const uid = user.uid;
-                const q = query(
-                    collection(db, "users"),
-                    where("authId", "==", uid)
-                );
+        if (completingLec) return;
+        if (selection?.level !== "lecture" || !user) return;
+        if (completedIds.has(selection.lectureId)) return;
 
-                const snapshot = await getDocs(q);
+        setCompletingLec(true);
+        try {
+            const uid = user.uid;
+            const q = query(collection(db, "users"), where("authId", "==", uid));
+            const snapshot = await getDocs(q);
 
-                if (snapshot.empty) {
-                    throw new Error("User document not found");
-                }
+            if (snapshot.empty) {
+                throw new Error("User document not found");
+            }
 
-                const userDoc = snapshot.docs[0];
-                // Add to a subcollection of that user document
-                await setDoc(doc(db, "users", userDoc.id, "completedLectures", selection.lectureId), {
-                    classId: classId,
+            const userDoc = snapshot.docs[0];
+            await setDoc(doc(db, "users", userDoc.id, "completedLectures", selection.lectureId), {
+                classId: classId,
+                lectureId: selection.lectureId,
+                completedAt: serverTimestamp(),
+            });
+
+            setCompletedLecs((prev) => [
+                ...prev,
+                {
+                    id: selection.lectureId,
+                    classId: classId ?? "",
                     lectureId: selection.lectureId,
-                    completedAt: serverTimestamp(),
-                })
-
-            }
-            catch (err) {
-                console.log(err)
-            } finally {
-                setCompletingLec(false);
-            }
+                    completedAt: serverTimestamp() as any,
+                },
+            ]);
+        } catch (err) {
+            console.log(err);
+        } finally {
+            setCompletingLec(false);
         }
-        else {
-            console.log('nahh')
-            return;
-        }
-
     }
     async function handleLogout() {
         await signOut(auth);
@@ -347,8 +366,8 @@ router.push("/");
     return (
         <div className="flex h-screen flex-col bg-canvas">
             <header className="flex h-14 shrink-0 items-center justify-between border-b border-ink-900/8 bg-white px-5">
-                <div className="flex items-center gap-2.5">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-iris-600 shrink-0">
+                <div className="flex items-center gap-1 sm:gap-2.5 min-w-0">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-iris-600">
                         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
                             <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="white" />
                         </svg>
@@ -356,17 +375,17 @@ router.push("/");
                     <button
                         type="button"
                         onClick={() => router.push("/classes")}
-                        className="text-[14px] font-semibold tracking-tight text-ink-900 hover:text-iris-600 transition-colors"
+                        className="shrink-0 text-sm font-semibold tracking-tight text-ink-900 hover:text-iris-600 transition-colors"
                     >
-                        Lecture Manager
+                        All Classes
                     </button>
                     {currentClass && (
                         <>
-                            <span className="text-ink-900/20">/</span>
+                            <span className="hidden md:inline text-ink-900/20 shrink-0">/</span>
                             <button
                                 type="button"
                                 onClick={() => router.push(`/classes/${currentClass.id}`)}
-                                className="text-[13px] text-ink-900/60 hover:text-iris-600 transition-colors"
+                                className="hidden md:block truncate text-sm text-ink-900/60 hover:text-iris-600 transition-colors"
                             >
                                 {currentClass.name}
                             </button>
@@ -374,159 +393,219 @@ router.push("/");
                     )}
                     {selectedLecture && (
                         <>
-                            <span className="text-ink-900/20">/</span>
-                            <span className="text-[13px] font-medium text-ink-900">{selectedLecture.title}</span>
+                            <span className="hidden md:inline text-ink-900/20 shrink-0">/</span>
+                            <span className="hidden md:block truncate text-sm font-medium text-ink-900">{selectedLecture.title}</span>
                         </>
                     )}
                 </div>
-                <button onClick={handleLogout} className="flex text-sm gap-2 text-red-500">
-                    Sign Out <LogOut size={18} />
-                </button>
             </header>
 
             <div className="flex min-h-0 flex-1">
                 <aside
-                    className={`overflow-y-auto border-r border-ink-900/8 bg-white px-2 py-3 ${classId ? 'hidden md:block md:w-[300px] md:shrink-0' : 'block w-full md:w-[300px] md:shrink-0'
+                    className={`flex flex-col border-r border-ink-900/8 bg-white px-2 py-3 ${classId ? 'hidden md:flex md:w-[300px] md:shrink-0' : 'flex w-full md:w-[300px] md:shrink-0'
                         }`}
                 >
-                    <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-900/40">
-                        Classes
-                    </p>
-                    {classesLoading ? (
-                        <div className="space-y-1.5 px-2">
-                            {Array.from({ length: 4 }).map((_, i) => (
-                                <div key={i} className="h-7 w-full animate-pulse rounded-md bg-ink-900/5" />
-                            ))}
+                    {userProfile && (
+                        <div className="flex items-center gap-3 px-2 pb-4 mb-4 border-b border-ink-900/8">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-iris-600 text-sm font-semibold text-white">
+                                {userProfile.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-ink-900">{userProfile.name}</p>
+                                <p className="truncate text-xs text-ink-900/50">{userProfile.email}</p>
+                                {userProfile.year && (
+                                    <p className="text-xs text-ink-900/40">Year {userProfile.year}</p>
+                                )}
+                            </div>
                         </div>
-                    ) : classesError ? (
-                        <p className="px-2 text-[12px] text-red-600">{classesError}</p>
-                    ) : (
-                        classes.map((cls) => (
-                            <button
-                                key={cls.id}
-                                type="button"
-                                onClick={() => router.push(`/classes/${cls.id}`)}
-                                className={`block w-full rounded-md px-2 py-1.5 text-left text-[13px] transition-colors ${cls.id === classId
-                                    ? "bg-iris-600/10 font-medium text-iris-600"
-                                    : "text-ink-900/70 hover:bg-ink-900/5"
-                                    }`}
-                            >
-                                {cls.name}
-                            </button>
-                        ))
                     )}
+                    <div className="flex-1 overflow-y-auto">
+                        <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-900/40">
+                            Classes
+                        </p>
+                        {classesLoading ? (
+                            <div className="space-y-1.5 px-2">
+                                {Array.from({ length: 4 }).map((_, i) => (
+                                    <div key={i} className="h-7 w-full animate-pulse rounded-md bg-ink-900/5" />
+                                ))}
+                            </div>
+                        ) : classesError ? (
+                            <p className="px-2 text-xs text-red-600">{classesError}</p>
+                        ) : (
+                            classes.map((cls) => (
+                                <button
+                                    key={cls.id}
+                                    type="button"
+                                    onClick={() => router.push(`/classes/${cls.id}`)}
+                                    className={`block w-full rounded-md px-2 py-2 md:py-1.5 text-left text-sm transition-colors ${cls.id === classId
+                                        ? "bg-iris-600/10 font-medium text-iris-600"
+                                        : "text-ink-900/70 hover:bg-ink-900/5"
+                                        }`}
+                                >
+                                    {cls.name}
+                                </button>
+                            ))
+                        )}
+                    </div>
+                    <button
+                        onClick={handleLogout}
+                        className="mt-3 flex shrink-0 items-center gap-2 rounded-md px-2 py-2 text-sm text-red-500 hover:bg-red-500/5 transition-colors"
+                    >
+                        <LogOut size={16} />
+                        Sign Out
+                    </button>
                 </aside>
 
                 {!classId ? (
                     <main className="hidden md:flex flex-1 flex-col items-center justify-center gap-2 overflow-y-auto px-5 text-center">
-                        <p className="text-[14px] font-medium text-ink-900">Pick a class</p>
-                        <p className="max-w-xs text-[13px] text-ink-900/50">
+                        <p className="text-sm font-medium text-ink-900">Pick a class</p>
+                        <p className="max-w-xs text-sm text-ink-900/50">
                             Choose a class from the sidebar to see its lectures and materials.
                         </p>
                     </main>
                 ) : (
                     <main className="flex flex-1 min-w-0 overflow-hidden">
                         {/* Lecture list */}
-                        <div className={`overflow-y-auto border-r border-ink-900/8 px-2 py-3 ${selectedLecture ? 'hidden md:block md:w-[280px] md:shrink-0' : 'block w-full md:w-[280px] md:shrink-0'
+                        <div className={`overflow-y-auto border-r border-ink-900/8 px-6 py-5 ${selectedLecture ? 'hidden md:block md:w-[280px] md:shrink-0' : 'block w-full md:w-[280px] md:shrink-0'
                             }`}>
-                            <div className="flex md:hidden items-center gap-1.5 px-2 pb-2">
+                            <div className="flex md:hidden items-center gap-1 pb-2 min-w-0 mb-2">
                                 <button
                                     type="button"
                                     onClick={() => router.push("/classes")}
-                                    className="text-ink-900/40 hover:text-ink-900"
+                                    className="text-ink-900/40 hover:text-ink-900 shrink-0"
                                     aria-label="Back to classes"
                                 >
                                     <ChevronLeft size={16} />
                                 </button>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-900/40">
-                                    Lectures
-                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => router.push("/classes")}
+                                    className="text-xs text-ink-900/40 hover:text-ink-900 shrink-0"
+                                >
+                                    All Classes
+                                </button>
+                                <span className="text-xs text-ink-900/20 shrink-0">/</span>
+                                <button
+                                    type="button"
+                                    onClick={() => router.push(`/classes/${currentClass?.id}`)}
+                                    className="text-xs font-medium text-ink-900 hover:text-iris-600 truncate"
+                                >
+                                    {currentClass?.name}
+                                </button>
                             </div>
 
-                            {lecturesLoading ? (
-                                <div className="space-y-1.5 px-2">
-                                    {Array.from({ length: 3 }).map((_, i) => (
-                                        <div key={i} className="h-12 w-full animate-pulse rounded-md bg-ink-900/5" />
-                                    ))}
-                                </div>
-                            ) : lecturesError ? (
-                                <p className="px-2 text-[12px] text-red-600">{lecturesError}</p>
-                            ) : lectures.length === 0 ? (
-                                <p className="px-2 text-[12px] text-ink-900/40">
-                                    No lectures yet for this class.
-                                </p>
-                            ) : (
-                                <div>
-                                    {Object.entries(groupedLectures).map(([dateKey, lecsForDay]) => (
-                                        <div key={dateKey} className="mb-4 last:mb-0">
-                                            <p className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-900/40">
-                                                {formatDateHeader(dateKey)}
-                                            </p>
-                                            <div className="space-y-1">
-                                                {lecsForDay.map((lec) => (
-                                                    <button
-                                                        key={lec.id}
-                                                        type="button"
-                                                        onClick={() => handleLecSelection(lec)}
-                                                        className={`block w-full rounded-md px-2 py-1.5 text-left transition-colors ${selection?.level === "lecture" && selection.lectureId === lec.id
-                                                            ? "bg-iris-600/10"
-                                                            : "hover:bg-ink-900/5"
-                                                            }`}
-                                                    >
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-[13px] font-medium text-ink-900 flex-1">{lec.title ? lec.title : "Untitled"}</p>
-                                                            {completedIds.has(lec.id) && (
-                                                                <Check size={14} className="shrink-0 text-teal-500" />
-                                                            )}
-                                                        </div>
-                                                        <p className="text-[11px] text-ink-900/50">
-                                                            {formatTimeRange(lec.startTime, lec.endTime)}
-                                                        </p>
-                                                    </button>
-                                                ))}
+                            <div className="-mx-4 px-2">
+                                {lecturesLoading ? (
+                                    <div className="space-y-1.5">
+                                        {Array.from({ length: 3 }).map((_, i) => (
+                                            <div key={i} className="h-12 w-full animate-pulse rounded-md bg-ink-900/5" />
+                                        ))}
+                                    </div>
+                                ) : lecturesError ? (
+                                    <p className="text-xs text-red-600">{lecturesError}</p>
+                                ) : lectures.length === 0 ? (
+                                    <p className="text-xs text-ink-900/40">
+                                        No lectures yet for this class.
+                                    </p>
+                                ) : (
+                                    <div>
+                                        {Object.entries(groupedLectures).map(([dateKey, lecsForDay]) => (
+                                            <div key={dateKey} className="mb-4 last:mb-0">
+                                                <p className="mb-1.5 px-2 text-xs font-semibold uppercase tracking-wide text-ink-900/40">
+                                                    {formatDateHeader(dateKey)}
+                                                </p>
+                                                <div className="space-y-1">
+                                                    {lecsForDay.map((lec) => (
+                                                        <button
+                                                            key={lec.id}
+                                                            type="button"
+                                                            onClick={() => handleLecSelection(lec)}
+                                                            className={`block w-full rounded-md py-2 px-2 md:py-1.5 text-left transition-colors ${selection?.level === "lecture" && selection.lectureId === lec.id
+                                                                ? "bg-iris-600/10"
+                                                                : "hover:bg-ink-900/5"
+                                                                }`}
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-sm font-medium text-ink-900 flex-1">{lec.title ? lec.title : "Untitled"}</p>
+                                                                {completedIds.has(lec.id) && (
+                                                                    <Check size={14} className="shrink-0 text-teal-500" />
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-ink-900/50">
+                                                                {formatTimeRange(lec.startTime, lec.endTime)}
+                                                            </p>
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* Materials panel */}
-                        <div className={`flex-1 min-w-0 overflow-y-auto px-6 py-5 ${selectedLecture ? 'block' : 'hidden md:block'
+                        <div className={`flex-1 min-w-0 overflow-y-auto px-6 py-5 ${selectedLecture || displayQuiz ? 'block' : 'hidden md:block'
                             }`}>
-                            {!selectedLecture ? (
+                            {displayQuiz ? (
+                                <div>
+                                    <button
+                                        onClick={() => setDisplayQuiz(null)}
+                                        className="mb-4 flex items-center gap-1.5 text-[13.5px] font-medium text-ink-500 hover:text-ink-900 transition"
+                                    >
+                                        <ChevronLeft size={16} />
+                                        Back to materials
+                                    </button>
+                                    <QuizTaker quizId={displayQuiz} />
+                                </div>
+                            ) : null}
+                            {!displayQuiz && (!selectedLecture ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                                    <p className="text-[14px] font-medium text-ink-900">Select a lecture</p>
-                                    <p className="max-w-xs text-[13px] text-ink-900/50">
+                                    <p className="text-sm font-medium text-ink-900">Select a lecture</p>
+                                    <p className="max-w-xs text-sm text-ink-900/50">
                                         Pick a lecture from the list to see its materials.
                                     </p>
                                 </div>
                             ) : (
                                 <div>
-                                    {/* Mobile back button */}
-                                    <div className="flex md:hidden items-center gap-1.5 mb-4">
+                                    {/* Mobile breadcrumb */}
+                                    <div className="flex md:hidden items-center gap-1 mb-4 min-w-0">
                                         <button
                                             type="button"
                                             onClick={() => setSelection(null)}
-                                            className="text-ink-900/40 hover:text-ink-900"
+                                            className="text-ink-900/40 hover:text-ink-900 shrink-0"
                                             aria-label="Back to lectures"
                                         >
                                             <ChevronLeft size={16} />
                                         </button>
-                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-900/40">
+                                        <button
+                                            type="button"
+                                            onClick={() => router.push("/classes")}
+                                            className="text-xs text-ink-900/40 hover:text-ink-900 shrink-0"
+                                        >
+                                            All Classes
+                                        </button>
+                                        <span className="text-xs text-ink-900/20 shrink-0">/</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelection(null)}
+                                            className="text-xs text-ink-900/60 hover:text-iris-600 truncate"
+                                        >
                                             {currentClass?.name}
-                                        </p>
+                                        </button>
+                                        <span className="text-xs text-ink-900/20 shrink-0">/</span>
+                                        <span className="text-xs font-medium text-ink-900 truncate">{selectedLecture?.title}</span>
                                     </div>
 
-                                    <h2 className="text-[15px] font-semibold text-ink-900">
+                                    <h2 className="text-base font-semibold text-ink-900">
                                         {selectedLecture.title}
                                     </h2>
                                     <div className="flex items-center gap-2 mt-0.5">
-                                        <p className="text-[12px] text-ink-900/50">
+                                        <p className="text-xs text-ink-900/50">
                                             {moment(selectedLecture.startTime).format("Do MMM")} · {formatTimeRange(selectedLecture.startTime, selectedLecture.endTime)}
                                         </p>
                                         {completedIds.has(selectedLecture.id) && (
-                                            <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2 py-0.5 text-[11px] font-medium text-teal-600">
+                                            <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2 py-0.5 text-xs font-medium text-teal-600">
                                                 <Check size={12} />
                                                 Completed
                                             </span>
@@ -544,9 +623,9 @@ router.push("/");
                                                 ))}
                                             </div>
                                         ) : materialsError ? (
-                                            <p className="text-[12px] text-red-600">{materialsError}</p>
+                                            <p className="text-xs text-red-600">{materialsError}</p>
                                         ) : selectedLecture.materials.length === 0 ? (
-                                            <p className="text-[12px] text-ink-900/40">
+                                            <p className="text-xs text-ink-900/40">
                                                 No materials uploaded for this lecture yet.
                                             </p>
                                         ) : (
@@ -554,137 +633,168 @@ router.push("/");
                                                 {selectedLecture.materials.map((mat) => {
                                                     const color = MATERIAL_COLOR[mat.type];
                                                     return (
-                                                    <li key={mat.id}>
-                                                        {mat.type === "text" ? (
-                                                            <div className="group flex items-start gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
-                                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                    {materialIcon(mat.type)}
+                                                        <li key={mat.id}>
+                                                            {mat.type === "text" ? (
+                                                                <div className="group flex items-start gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
+                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                        {materialIcon(mat.type)}
+                                                                    </div>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="truncate text-sm font-medium text-ink-900">
+                                                                                {mat.title}
+                                                                            </p>
+                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                                {materialTypeLabel(mat.type)}
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="mt-1 whitespace-pre-wrap text-xs text-ink-900/70">
+                                                                            {mat.value || "No content"}
+                                                                        </p>
+                                                                    </div>
                                                                 </div>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <p className="truncate text-[13px] font-medium text-ink-900">
+                                                            ) : mat.type === "youtube" && mat.value ? (
+                                                                (() => {
+                                                                    const url = mat.value;
+                                                                    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/);
+                                                                    const videoId = match ? match[1] : null;
+                                                                    const embedSrc = videoId ? `https://www.youtube.com/embed/${videoId}` : url;
+                                                                    return (
+                                                                        <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
+                                                                            <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
+                                                                                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                                    {materialIcon(mat.type)}
+                                                                                </div>
+                                                                                <p className="truncate text-sm font-medium text-ink-900">
+                                                                                    {mat.title}
+                                                                                </p>
+                                                                                <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                                    {materialTypeLabel(mat.type)}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="aspect-video">
+                                                                                <iframe
+                                                                                    src={embedSrc}
+                                                                                    className="h-full w-full"
+                                                                                    allow="autoplay; encrypted-media; picture-in-picture"
+                                                                                    allowFullScreen
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()
+                                                            ) : mat.type === "video" && videoUrls[mat.id] ? (
+                                                                <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
+                                                                    <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
+                                                                        <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                            {materialIcon(mat.type)}
+                                                                        </div>
+                                                                        <p className="truncate text-sm font-medium text-ink-900">
                                                                             {mat.title}
                                                                         </p>
                                                                         <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
                                                                             {materialTypeLabel(mat.type)}
                                                                         </span>
                                                                     </div>
-                                                                    <p className="mt-1 whitespace-pre-wrap text-[12px] text-ink-900/70">
-                                                                        {mat.value || "No content"}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        ) : mat.type === "youtube" && mat.value ? (
-                                                            (() => {
-                                                                const url = mat.value;
-                                                                const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/);
-                                                                const videoId = match ? match[1] : null;
-                                                                const embedSrc = videoId ? `https://www.youtube.com/embed/${videoId}` : url;
-                                                                 return (
-                                                                     <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
-                                                                         <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
-                                                                             <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                                 {materialIcon(mat.type)}
-                                                                             </div>
-                                                                             <p className="truncate text-[13px] font-medium text-ink-900">
-                                                                                 {mat.title}
-                                                                             </p>
-                                                                             <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                                 {materialTypeLabel(mat.type)}
-                                                                             </span>
-                                                                         </div>
-                                                                         <div className="aspect-video">
-                                                                             <iframe
-                                                                                 src={embedSrc}
-                                                                                 className="h-full w-full"
-                                                                                 allow="autoplay; encrypted-media; picture-in-picture"
-                                                                                 allowFullScreen
-                                                                             />
-                                                                         </div>
-                                                                     </div>
-                                                                );
-                                                            })()
-                                                        ) : mat.type === "video" && videoUrls[mat.id] ? (
-                                                             <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
-                                                                  <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
-                                                                      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                          {materialIcon(mat.type)}
-                                                                      </div>
-                                                                      <p className="truncate text-[13px] font-medium text-ink-900">
-                                                                          {mat.title}
-                                                                      </p>
-                                                                      <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                          {materialTypeLabel(mat.type)}
-                                                                      </span>
-                                                                  </div>
-                                                                 <div className="aspect-video">
-                                                                     <iframe
-                                                                         src={videoUrls[mat.id]}
-                                                                         className="h-full w-full"
-                                                                         allow="autoplay; encrypted-media; picture-in-picture"
-                                                                         allowFullScreen
-                                                                     />
-                                                                 </div>
-                                                             </div>
-                                                        ) : mat.value ? (
-                                                            <a
-                                                                href={mat.value}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="group flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5 transition-colors hover:bg-ink-900/5"
-                                                            >
-                                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                    {materialIcon(mat.type)}
-                                                                </div>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <p className="truncate text-[13px] font-medium text-ink-900">
-                                                                            {mat.title}
-                                                                        </p>
-                                                                        <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                            {materialTypeLabel(mat.type)}
-                                                                        </span>
-                                                                    </div>
-                                                                    <p className="truncate text-[11px] text-ink-900/40">
-                                                                        {mat.type === "link" || mat.type === "pdf"
-                                                                            ? mat.value
-                                                                            : getFileNameFromUrl(mat.value)}
-                                                                    </p>
-                                                                </div>
-                                                                <ExternalLink
-                                                                    size={14}
-                                                                    className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
-                                                                />
-                                                            </a>
-                                                        ) : (
-                                                            <div className="flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
-                                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                    {materialIcon(mat.type)}
-                                                                </div>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <p className="truncate text-[13px] font-medium text-ink-900">
-                                                                            {mat.title}
-                                                                        </p>
-                                                                        <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                            {materialTypeLabel(mat.type)}
-                                                                        </span>
+                                                                    <div className="aspect-video">
+                                                                        <iframe
+                                                                            src={videoUrls[mat.id]}
+                                                                            className="h-full w-full"
+                                                                            allow="encrypted-media; picture-in-picture"
+                                                                            allowFullScreen
+                                                                        />
                                                                     </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
-                                                    </li>
+                                                            ) : mat.type === "quiz" && mat.value ? (
+                                                                <button
+                                                                    onClick={() => setDisplayQuiz(mat.value)}
+                                                                    className="group flex w-full items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5 transition-colors hover:bg-ink-900/5 text-left"
+                                                                >
+                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                        {materialIcon(mat.type)}
+                                                                    </div>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="truncate text-sm font-medium text-ink-900">
+                                                                                {mat.title}
+                                                                            </p>
+                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                                {materialTypeLabel(mat.type)}
+                                                                            </span>
+                                                                            {(mat as any).requiredPostTest && (
+                                                                                <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 uppercase tracking-wide">
+                                                                                    Required
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <p className="text-xs text-ink-900/40">
+                                                                            Click to take quiz
+                                                                        </p>
+                                                                    </div>
+                                                                    <ExternalLink
+                                                                        size={14}
+                                                                        className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
+                                                                    />
+                                                                </button>
+                                                            ) : mat.value ? (
+                                                                <a
+                                                                    href={mat.value}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="group flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5 transition-colors hover:bg-ink-900/5"
+                                                                >
+                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                        {materialIcon(mat.type)}
+                                                                    </div>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="truncate text-sm font-medium text-ink-900">
+                                                                                {mat.title}
+                                                                            </p>
+                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                                {materialTypeLabel(mat.type)}
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="truncate text-xs text-ink-900/40">
+                                                                            {mat.type === "link" || mat.type === "pdf"
+                                                                                ? mat.value
+                                                                                : getFileNameFromUrl(mat.value)}
+                                                                        </p>
+                                                                    </div>
+                                                                    <ExternalLink
+                                                                        size={14}
+                                                                        className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
+                                                                    />
+                                                                </a>
+                                                            ) : (
+                                                                <div className="flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
+                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
+                                                                        {materialIcon(mat.type)}
+                                                                    </div>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="truncate text-sm font-medium text-ink-900">
+                                                                                {mat.title}
+                                                                            </p>
+                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
+                                                                                {materialTypeLabel(mat.type)}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </li>
                                                     );
                                                 })}
                                             </ul>
                                         )}
                                     </div>
                                 </div>
-                            )}
+                            ))}
                             <button
                                 onClick={() => completedLec()}
                                 disabled={!selectedLecture || completingLec || (selectedLecture && completedIds.has(selectedLecture.id))}
-                                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gradient-to-b from-teal-500 to-teal-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:from-teal-500 hover:to-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gradient-to-b from-teal-500 to-teal-700 px-4 py-2.5 md:py-2 text-sm font-semibold text-white transition hover:from-teal-500 hover:to-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 {completingLec ? (
                                     <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">

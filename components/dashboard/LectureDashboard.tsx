@@ -169,11 +169,11 @@ export default function LectureDashboard() {
             ...c,
             lectures: (c.lectures ?? []).map((l) => (l.id === lectureId ? { ...l, ...patch } : l)),
           }
-        )
-      );
-    };
-  
-    async function loadLecture(selection_data: Selection) {
+      )
+    );
+  };
+
+  async function loadLecture(selection_data: Selection) {
     if (selection_data && selection_data.level == "class") {
       setLectureLoading(true);
       try {
@@ -321,19 +321,21 @@ export default function LectureDashboard() {
             <button
               type="button"
               onClick={addClass}
-              className="flex items-center gap-2 rounded-lg border border-ink-900/10 bg-white px-3 py-2 text-[13px] font-semibold text-iris-600 transition hover:bg-iris-50"
+              className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-[13px] font-semibold text-iris-600 transition hover:bg-iris-50"
             >
               <Plus className="h-4 w-4" />
               New class
             </button>
+            <div className="border-t border-ink-900/8 px-2"></div>
             <button
               type="button"
               onClick={manageStudents}
-              className="flex items-center gap-2 rounded-lg border border-ink-900/10 bg-white px-3 py-2 text-[13px] font-semibold text-teal-600 transition hover:bg-teal-50"
+              className="flex items-center gap-2 rounded bg-white px-3 py-2 text-[13px] font-semibold text-teal-600 transition hover:bg-teal-50"
             >
               <UserRound className="h-4 w-4" />
               Manage Students
             </button>
+            <div className="border-t border-ink-900/8 px-2"></div>
           </div>
           <div className="flex-1 overflow-y-auto px-2">
             <TreeView
@@ -416,7 +418,7 @@ export default function LectureDashboard() {
             />
           )}
         </main>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 }
