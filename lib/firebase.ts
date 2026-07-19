@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, type Firestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -15,7 +15,18 @@ const firebaseConfig = {
 // Avoid re-initializing the app on hot reloads / multiple imports
 const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth: Auth = getAuth(app);
-const db = getFirestore(app);
+
+// Fall back to getFirestore on hot-reload if already initialized.
+let db: Firestore;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    experimentalForceLongPolling: true,
+  }, "rama-toxicology-bkk");
+} catch {
+  db = getFirestore(app, "rama-toxicology-bkk");
+}
+
 const storage: FirebaseStorage = getStorage(app);
 
 export { app, auth, db, storage };

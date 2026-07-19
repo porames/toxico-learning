@@ -8,7 +8,7 @@ import { addDoc, collection, getDocs, query, where, serverTimestamp, setDoc, doc
 import { useRouter } from "next/navigation";
 import formatTimeRange from "@/lib/formatTimeRange";
 import { MATERIAL_COLOR } from "../dashboard/icons";
-import { onAuthStateChanged, type User } from "firebase/auth";
+import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import moment from "moment";
 
 // Groups lectures by calendar day (using local time, not UTC) and returns
@@ -106,7 +106,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             if (!currentUser) {
-                router.push("/login");
+router.push("/");
             } else {
                 setUser(currentUser);
             }
@@ -122,7 +122,11 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
             setClassesLoading(true);
             setClassesError(null);
             try {
+                console.log("=== FIRESTORE TIMING ===");
+                console.time("getDocs classes");
                 const snapshot = await getDocs(collection(db, "classes"));
+                console.timeEnd("getDocs classes");
+                console.log("classes count:", snapshot.docs.length);
                 const classesData = snapshot.docs.map((doc) => ({
                     id: doc.id,
                     name: doc.data()["name"],
@@ -134,23 +138,23 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     collection(db, "users"),
                     where("authId", "==", user.uid)
                 );
+                console.time("getDocs userQuery");
                 const snapshotUser = await getDocs(userQuery);
+                console.timeEnd("getDocs userQuery");
                 if (snapshotUser.empty) {
                     throw new Error("User document not found");
                 }
                 const userDoc = snapshotUser.docs[0];
-                const classIds = classesData.map((c) => c.id);
-                console.log(userDoc.id);
-                const q = query(
-                    collection(db, "users", userDoc.id, "completedLectures"),
-                    where("classId", "in", classIds)
+                console.time("getDocs completedLectures");
+                const completedLecSnap = await getDocs(
+                    collection(db, "users", userDoc.id, "completedLectures")
                 );
-                const completedLecSnap = await getDocs(q);
+                console.timeEnd("getDocs completedLectures");
                 const completedLectures = completedLecSnap.docs.map((doc) => ({
                     id: doc.id,
                     ...doc.data(),
                 })) as CompletedLecture[];
-                console.log(completedLectures)
+                console.log("completedLectures count:", completedLectures.length)
                 setCompletedLecs(completedLectures);
 
             } catch (err) {
@@ -161,7 +165,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
             }
         }
         loadClasses();
-    }, [user, classId, authLoading]);
+    }, [user, authLoading]);
 
     // Load lectures whenever the selected class changes.
     useEffect(() => {
@@ -177,7 +181,11 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
             setLecturesError(null);
             setSelection(null);
             try {
+                console.log("=== Loading lectures for class:", classId, "===");
+                console.time("getDocs lectures");
                 const snapshot = await getDocs(collection(db, "classes", classId, "lectures"));
+                console.timeEnd("getDocs lectures");
+                console.log("lectures count:", snapshot.docs.length);
                 const lecturesData = snapshot.docs.map((doc) => ({
                     id: doc.id,
                     title: doc.data().title,
@@ -207,10 +215,14 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
 
         setMaterialsLoading(true);
         setMaterialsError(null);
-        try {
-            const snapshot = await getDocs(
-                collection(db, "classes", classId, "lectures", lec.id, "materials")
-            );
+            try {
+                console.log("=== Loading materials for lecture:", lec.id, "===");
+                console.time("getDocs materials");
+                const snapshot = await getDocs(
+                    collection(db, "classes", classId, "lectures", lec.id, "materials")
+                );
+                console.timeEnd("getDocs materials");
+                console.log("materials count:", snapshot.docs.length);
             const materials = snapshot.docs.map((doc) => ({
                 id: doc.id,
                 type: doc.data().type,
@@ -325,6 +337,11 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
         }
 
     }
+    async function handleLogout() {
+        await signOut(auth);
+        router.push("/login");
+    }
+
     if (authLoading) return null;
 
     return (
@@ -362,7 +379,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                         </>
                     )}
                 </div>
-                <button className="flex text-sm gap-2 text-red-500">
+                <button onClick={handleLogout} className="flex text-sm gap-2 text-red-500">
                     Sign Out <LogOut size={18} />
                 </button>
             </header>

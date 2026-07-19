@@ -5,9 +5,10 @@ import type { ClassItem, Lecture, Material, MaterialType, Selection } from "./ty
 import { initialClasses } from "./mockData";
 import TreeView from "./TreeView";
 import { ClassEditor, EmptyState, LectureEditor, defaultMaterialTitle } from "./EditorPanel";
-import { Menu, Plus, UserRound } from 'lucide-react';
+import { Menu, Plus, UserRound, LogOut } from 'lucide-react';
 import ManageStudents from "./ManageStudents";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
 import { collection, getDocs, addDoc, serverTimestamp, getDoc, deleteDoc, doc } from "firebase/firestore";
 import EnrolStudents from "./EnrolStudents";
 
@@ -303,24 +304,6 @@ export default function LectureDashboard() {
           </div>
           <span className="text-[14px] font-semibold tracking-tight text-ink-900">Lecture Manager</span>
         </div>
-        <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={addClass}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-iris-500 to-iris-700 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:from-iris-500 hover:to-iris-800"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New class
-          </button>
-          <button
-            type="button"
-            onClick={manageStudents}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-b from-teal-500 to-teal-700 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:from-teal-500 hover:to-teal-800"
-          >
-            <UserRound className="h-3.5 w-3.5" />
-            Manage Students
-          </button>
-        </div>
       </header>
 
       <div className="relative flex min-h-0 flex-1">
@@ -331,21 +314,51 @@ export default function LectureDashboard() {
           />
         )}
         <aside
-          className={`w-[300px] shrink-0 overflow-y-auto border-r border-ink-900/8 bg-white px-2 md:relative md:z-auto md:block ${showMenu ? "fixed inset-y-0 left-0 z-20 block" : "hidden"
+          className={`flex w-[300px] shrink-0 flex-col border-r border-ink-900/8 bg-white md:relative md:z-auto md:flex ${showMenu ? "fixed inset-y-0 left-0 z-20 block" : "hidden"
             }`}
         >
-          <TreeView
-            classes={classes}
-            selection={selection}
-            expanded={expanded}
-            onToggle={toggleExpand}
-            onSelect={loadLecture}
-            onAddLecture={addLecture}
-            onAddMaterial={(classId, lectureId) => addMaterial(classId, lectureId, "text")}
-            onDeleteClass={deleteClass}
-            onDeleteLecture={deleteLecture}
-            onDeleteMaterial={deleteMaterial}
-          />
+          <div className="flex flex-col gap-0.5 px-2 py-2">
+            <button
+              type="button"
+              onClick={addClass}
+              className="flex items-center gap-2 rounded-lg border border-ink-900/10 bg-white px-3 py-2 text-[13px] font-semibold text-iris-600 transition hover:bg-iris-50"
+            >
+              <Plus className="h-4 w-4" />
+              New class
+            </button>
+            <button
+              type="button"
+              onClick={manageStudents}
+              className="flex items-center gap-2 rounded-lg border border-ink-900/10 bg-white px-3 py-2 text-[13px] font-semibold text-teal-600 transition hover:bg-teal-50"
+            >
+              <UserRound className="h-4 w-4" />
+              Manage Students
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2">
+            <TreeView
+              classes={classes}
+              selection={selection}
+              expanded={expanded}
+              onToggle={toggleExpand}
+              onSelect={loadLecture}
+              onAddLecture={addLecture}
+              onAddMaterial={(classId, lectureId) => addMaterial(classId, lectureId, "text")}
+              onDeleteClass={deleteClass}
+              onDeleteLecture={deleteLecture}
+              onDeleteMaterial={deleteMaterial}
+            />
+          </div>
+          <div className="border-t border-ink-900/8 px-2 py-2">
+            <button
+              type="button"
+              onClick={() => signOut(auth)}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium text-ink-500 transition hover:bg-red-50 hover:text-red-600"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
         </aside>
 
         <main className="flex-1 overflow-y-auto">

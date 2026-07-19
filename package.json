@@ -14,7 +14,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
-    "firebase": "^11.0.2",
+    "firebase": "^12.16.0",
     "firebase-admin": "^14.1.0",
     "lucide-react": "^1.24.0",
     "moment": "^2.30.1",

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
-import type { ClassItem, Selection } from "./types";
+import type { ClassItem, Lecture, Selection } from "./types";
 import {
   ChevronIcon,
   FolderIcon,
@@ -12,6 +12,7 @@ import {
   MATERIAL_COLOR,
 } from "./icons";
 import formatTimeRange from "@/lib/formatTimeRange";
+import moment from "moment";
 
 
 interface TreeViewProps {
@@ -186,44 +187,57 @@ export default function TreeView({
                   <p className="py-2 text-[12.5px] italic text-ink-300">Loading ...</p>
                 ) : cls.lectures.length === 0 ? (
                   <p className="py-2 text-[12.5px] italic text-ink-300">No lectures yet</p>
-                ) : (
-                  cls.lectures.map((lec) => {
-                    const lecExpanded = expanded.has(lec.id);
-                    const lecSelected = selection?.level === "lecture" && selection.lectureId === lec.id;
-
-                    return (
-                      <Fragment key={lec.id}>
-                        <TreeRow
-                          depth={0}
-                          icon={<ClockIcon className="h-4 w-4" />}
-                          label={lec.title || "Untitled lecture"}
-                          subtitle={formatTimeRange(lec.startTime, lec.endTime)}
-                          isSelected={lecSelected}
-                          isExpanded={lecExpanded}
-                          hasChildren={false}
-                          onSelect={() => onSelect({ level: "lecture", classId: cls.id, lectureId: lec.id })}
-                           onToggle={() => onToggle(lec.id, lecExpanded)}
-                          actions={
-                            <>
-                              <RowIconButton label="Add material" onClick={() => onAddMaterial(cls.id, lec.id)}>
-                                <PlusIcon className="h-3.5 w-3.5" />
-                              </RowIconButton>
-                              <RowIconButton
-                                label="Delete lecture"
-                                danger
-                                onClick={() => onDeleteLecture(cls.id, lec.id)}
-                              >
-                                <TrashIcon className="h-3.5 w-3.5" />
-                              </RowIconButton>
-                            </>
-                          }
-                        />
-
-
-                      </Fragment>
-                    );
-                  })
-                )}
+                  ) : (
+                    (() => {
+                      const groups = new Map<string, Lecture[]>();
+                      for (const lec of cls.lectures) {
+                        const key = moment(lec.startTime).format("YYYY-MM-DD");
+                        if (!groups.has(key)) groups.set(key, []);
+                        groups.get(key)!.push(lec);
+                      }
+                      return Array.from(groups.entries())
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([key, lectures]: [string, Lecture[]]) => (
+                          <Fragment key={key}>
+                            <div className="px-1 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-ink-400">
+                              {moment(lectures[0].startTime).format("ddd, MMM D, YYYY")}
+                            </div>
+                            {lectures.map((lec) => {
+                              const lecExpanded = expanded.has(lec.id);
+                              const lecSelected = selection?.level === "lecture" && selection.lectureId === lec.id;
+                              return (
+                                <TreeRow
+                                  key={lec.id}
+                                  depth={0}
+                                  icon={<ClockIcon className="h-4 w-4" />}
+                                  label={lec.title || "Untitled lecture"}
+                                  subtitle={formatTimeRange(lec.startTime, lec.endTime)}
+                                  isSelected={lecSelected}
+                                  isExpanded={lecExpanded}
+                                  hasChildren={false}
+                                  onSelect={() => onSelect({ level: "lecture", classId: cls.id, lectureId: lec.id })}
+                                  onToggle={() => onToggle(lec.id, lecExpanded)}
+                                  actions={
+                                    <>
+                                      <RowIconButton label="Add material" onClick={() => onAddMaterial(cls.id, lec.id)}>
+                                        <PlusIcon className="h-3.5 w-3.5" />
+                                      </RowIconButton>
+                                      <RowIconButton
+                                        label="Delete lecture"
+                                        danger
+                                        onClick={() => onDeleteLecture(cls.id, lec.id)}
+                                      >
+                                        <TrashIcon className="h-3.5 w-3.5" />
+                                      </RowIconButton>
+                                    </>
+                                  }
+                                />
+                              );
+                            })}
+                          </Fragment>
+                        ));
+                    })()
+                  )}
               </TreeChildren>
             )}
           </Fragment>

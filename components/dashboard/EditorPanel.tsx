@@ -30,6 +30,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
+import moment from "moment";
 
 const fieldClass =
   "w-full rounded-lg border border-ink-900/12 bg-white px-3 py-2 text-[14px] text-ink-900 placeholder:text-ink-300 transition focus:border-iris-500 focus:ring-4 focus:ring-iris-500/15";
@@ -186,26 +187,42 @@ export function ClassEditor({
           Add lecture
         </button>
       </div>
-      <div className="mt-2 flex-row border-b border-ink-900/10 pt-6 space-y-4 pb-8 text-sm">
-        {cls.lectures && cls.lectures.map((lec) => {
-          return (
-            <div key={lec.id}>
-              <button
-                onClick={() => onSelect({ level: "lecture", classId: cls.id, lectureId: lec.id })}
-                className="w-full text-left rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-medium text-gray-900 truncate">
-                    {lec.title || "Untitled lecture"}
-                  </p>
-                  <p className="shrink-0 text-sm text-gray-500">
-                    {formatTimeRange(lec.startTime, lec.endTime)}
-                  </p>
+      <div className="mt-2 flex-row border-b border-ink-900/10 pt-6 pb-8 text-sm">
+        {cls.lectures && (() => {
+          const groups = new Map<string, Lecture[]>();
+          for (const lec of cls.lectures) {
+            const key = moment(lec.startTime).format("YYYY-MM-DD");
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(lec);
+          }
+          return Array.from(groups.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, lectures]: [string, Lecture[]]) => (
+              <div key={key} className="mb-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400 mb-2">
+                  {moment(lectures[0].startTime).format("ddd, MMM D, YYYY")}
+                </p>
+                <div className="space-y-2">
+                  {lectures.map((lec) => (
+                    <button
+                      key={lec.id}
+                      onClick={() => onSelect({ level: "lecture", classId: cls.id, lectureId: lec.id })}
+                      className="w-full text-left rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-gray-900 truncate">
+                          {lec.title || "Untitled lecture"}
+                        </p>
+                        <p className="shrink-0 text-sm text-gray-500">
+                          {formatTimeRange(lec.startTime, lec.endTime)}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              </button>
-            </div>
-          );
-        })}
+              </div>
+            ));
+        })()}
       </div>
 
       <button
@@ -525,7 +542,7 @@ function MaterialCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
+    transition: transition ? `${transition}, opacity 200ms ease` : undefined,
     opacity: isDragging ? 0.5 : undefined,
   };
   const Icon = MATERIAL_ICON[material.type];
@@ -675,12 +692,29 @@ function MaterialCard({
           />
 
           {material.type === "youtube" && (
-            <input
-              value={material.value}
-              onChange={(e) => onUpdate({ value: e.target.value })}
-              placeholder="https://youtube.com/watch?v=..."
-              className={`${fieldClass} !py-1.5 !text-[13px]`}
-            />
+            <div className="space-y-2">
+              <input
+                value={material.value}
+                onChange={(e) => onUpdate({ value: e.target.value })}
+                placeholder="https://youtube.com/watch?v=..."
+                className={`${fieldClass} !py-1.5 !text-[13px] ${material.value && !getYoutubeVideoId(material.value) ? "border-red-400 focus:border-red-500 focus:ring-red-500/15" : ""}`}
+              />
+              {material.value && !getYoutubeVideoId(material.value) && (
+                <p className="text-[12px] text-red-500">Please enter a valid YouTube link</p>
+              )}
+              {getYoutubeVideoId(material.value) && (
+                <div className="overflow-hidden rounded-lg border border-ink-900/8">
+                  <div className="aspect-video">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${getYoutubeVideoId(material.value)}`}
+                      className="h-full w-full"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {material.type === "link" && (
@@ -870,6 +904,21 @@ function MaterialCard({
       </div>
     </div>
   );
+}
+
+function getYoutubeVideoId(url: string): string | null {
+  if (!url) return null;
+  const patterns = [
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?(?:.*&)?v=([a-zA-Z0-9_-]{11})/,
+    /(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]{11})/,
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
 function VideoUploadIcon() {

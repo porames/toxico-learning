@@ -1,6 +1,7 @@
 import {onRequest} from "firebase-functions/v2/https";
 import admin from "firebase-admin";
 import {initializeApp, cert} from "firebase-admin/app";
+import {getFirestore} from "firebase-admin/firestore";
 import sharp from "sharp";
 import jwt from "jsonwebtoken";
 
@@ -30,7 +31,7 @@ if (process.env.FUNCTIONS_EMULATOR) {
 initializeApp(firebaseConfig);
 
 const storage = admin.storage();
-const db = admin.firestore();
+const db = getFirestore(undefined, "rama-toxicology-bkk");
 
 function validateStudentIds(studentIds) {
   if (!Array.isArray(studentIds)) {
@@ -71,8 +72,7 @@ export const enrolStudents = onRequest(async (req, res) => {
     }
     const idToken = authHeader.split("Bearer ")[1];
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const userDoc = await admin
-        .firestore()
+    const userDoc = await db
         .collection("users")
         .where("authId", "==", decodedToken.uid)
         .get();
@@ -96,7 +96,6 @@ export const enrolStudents = onRequest(async (req, res) => {
     validateStudentIds(req.body.studentIds);
 
 
-    const db = admin.firestore();
     const batch = db.batch();
     const classRef = db.collection("classes").doc(classId);
     batch.update(classRef, {
@@ -127,8 +126,7 @@ export const getStudents = onRequest(async (req, res) => {
     }
     const idToken = authHeader.split("Bearer ")[1];
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const userDoc = await admin
-        .firestore()
+    const userDoc = await db
         .collection("users")
         .where("authId", "==", decodedToken.uid)
         .get();
@@ -146,8 +144,6 @@ export const getStudents = onRequest(async (req, res) => {
     if (!classId || typeof classId !== "string") {
       return res.status(400).json({message: "classId is required."});
     }
-
-    const db = admin.firestore();
 
     // Fetch the class doc
     const classSnap = await db.collection("classes").doc(classId).get();
@@ -198,7 +194,7 @@ export const signUp = onRequest(async (req, res) => {
       });
       return;
     }
-    const snapshot = await admin.firestore()
+    const snapshot = await db
         .collection("users")
         .where("email", "==", email)
         .where("rama_id", "==", rama_id)
@@ -250,8 +246,7 @@ export const createUser = onRequest(async (req, res) => {
     }
     const idToken = authHeader.split("Bearer ")[1];
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const userDoc = await admin
-        .firestore()
+    const userDoc = await db
         .collection("users")
         .where("authId", "==", decodedToken.uid)
         .get();
@@ -273,7 +268,7 @@ export const createUser = onRequest(async (req, res) => {
       return;
     }
 
-    const userRef = admin.firestore().collection("users").doc();
+    const userRef = db.collection("users").doc();
 
     await userRef.set({
       email,

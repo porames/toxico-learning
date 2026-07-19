@@ -21,41 +21,42 @@ export default function EnrolStudents({ classId }: { classId: string }) {
     const [enrolling, setEnrolling] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
-    useEffect(() => {
-        async function loadStudents() {
-            setError(null);
-            try {
-                const auth = getAuth();
-                const user = auth.currentUser;
-                if (!user) throw new Error("Not logged in");
-                const token = await user.getIdToken();
+    async function loadStudents() {
+        setError(null);
+        try {
+            const auth = getAuth();
+            const user = auth.currentUser;
+            if (!user) throw new Error("Not logged in");
+            const token = await user.getIdToken();
 
-                const res = await fetch(
-                    "https://us-central1-rama-toxico-edu.cloudfunctions.net/getStudents",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({ classId }),
-                    }
-                );
-
-
-                if (!res.ok) {
-                    const body = await res.json().catch(() => null);
-                    throw new Error(body?.message || "Failed to load students");
+            const res = await fetch(
+                "https://us-central1-rama-toxico-edu.cloudfunctions.net/getStudents",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ classId }),
                 }
+            );
 
-                const data = await res.json();
-                console.log(data)
-                setStudents(data.students);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : "Something went wrong");
-                setStudents([]);
+
+            if (!res.ok) {
+                const body = await res.json().catch(() => null);
+                throw new Error(body?.message || "Failed to load students");
             }
+
+            const data = await res.json();
+            console.log(data)
+            setStudents(data.students);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Something went wrong");
+            setStudents([]);
         }
+    }
+
+    useEffect(() => {
         loadStudents();
     }, [classId]);
 
@@ -98,6 +99,7 @@ export default function EnrolStudents({ classId }: { classId: string }) {
 
             setSuccess(`Enrolled ${selectedStudents.length} student(s) successfully.`);
             setSelectedStudents([]);
+            await loadStudents();
         } catch (err) {
             setError(err instanceof Error ? err.message : "Something went wrong");
         } finally {
