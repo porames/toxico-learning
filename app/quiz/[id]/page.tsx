@@ -1,9 +1,9 @@
-import QuizCreator from "@/components/quiz/QuizCreator";
+import QuizOverview from "@/components/quiz/QuizOverview";
 
 export const metadata = {
-  title: "Edit Quiz",
+  title: "Quiz",
 };
 
-export default function EditQuizPage({ params }: { params: { id: string } }) {
-  return <QuizCreator quizId={params.id} />;
+export default function QuizOverviewPage({ params }: { params: { id: string } }) {
+  return <QuizOverview quizId={params.id} />;
 }

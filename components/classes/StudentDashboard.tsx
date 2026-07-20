@@ -2,15 +2,20 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { ClassItem, Lecture, Selection, CompletedLecture } from "../dashboard/types";
-import { ChevronLeft, FileText, Link as LinkIcon, Video, File, LogOut, ExternalLink, Check, MessageCircleWarning, FileQuestion } from "lucide-react";
+import { ChevronLeft, LogOut, Check } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
-import { addDoc, collection, getDocs, query, where, serverTimestamp, setDoc, doc } from "firebase/firestore";
+import { collection, getDocs, query, where, serverTimestamp, setDoc, doc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import formatTimeRange from "@/lib/formatTimeRange";
 import { MATERIAL_COLOR } from "../dashboard/icons";
-import { onAuthStateChanged, signOut, type User } from "firebase/auth";
+import { signOut } from "firebase/auth";
 import moment from "moment";
 import QuizTaker from "../quiz/QuizTaker";
+import MaterialRenderer from "./materials/MaterialRenderer";
+import { QuizAttempt } from "../quiz/types";
+import UserInfoCard from "../UserInfoCard";
+import NavigationList from "../NavigationList";
+import { useUserProfile } from "@/hooks/useUserProfile";
 
 // Groups lectures by calendar day (using local time, not UTC) and returns
 // them keyed by "YYYY-MM-DD", sorted chronologically within each day.
@@ -56,41 +61,12 @@ function formatDateHeader(dateKey: string): string {
 }
 
 // Human-readable label for a material's type badge.
-function materialTypeLabel(type: string): string {
-    switch (type) {
-        case "video":
-            return "Video";
-        case "youtube":
-            return "YouTube";
-        case "link":
-            return "Link";
-        case "pdf":
-            return "PDF";
-        case "text":
-            return "Note";
-        case "quiz":
-            return "Quiz";
-        default:
-            return "File";
-    }
-}
 
 // Best-effort filename extraction from a storage/CDN URL, so uploaded files
 // show something more meaningful than a long signed URL.
-function getFileNameFromUrl(url: string): string {
-    try {
-        const pathname = new URL(url).pathname;
-        const segments = pathname.split("/");
-        const last = segments[segments.length - 1] || url;
-        return decodeURIComponent(last);
-    } catch {
-        return url;
-    }
-}
 
 export default function StudentDashboard({ classId }: { classId?: string }) {
-    const [user, setUser] = useState<User | null>(null);
-    const [authLoading, setAuthLoading] = useState(true);
+    const { user, profile: userProfile, loading: authLoading } = useUserProfile();
     const [classes, setClasses] = useState<ClassItem[]>([]);
     const [lectures, setLectures] = useState<Lecture[]>([]);
     const [selection, setSelection] = useState<Selection>(null);
@@ -105,29 +81,15 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     const [completingLec, setCompletingLec] = useState(false);
     const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
     const [displayQuiz, setDisplayQuiz] = useState<string | null>(null);
-    const [userProfile, setUserProfile] = useState<{
-        name: string;
-        email: string;
-        year: string;
-    } | null>(null);
+    const [quizAttempts, setQuizAttempts] = useState<Record<string, { passed: boolean; completedAt: Date | null }>>({});
+    const [quizResult, setQuizResult] = useState<{ id: string; score: number; totalPoints: number; passed: boolean; pct: number } | null>(null);
+    const [quizViewKey, setQuizViewKey] = useState(0);
     const router = useRouter();
-
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            if (!currentUser) {
-                router.push("/");
-            } else {
-                setUser(currentUser);
-            }
-            setAuthLoading(false);
-        });
-        return unsubscribe;
-    }, [router]);
 
     // Load the full class list once (used for the "pick a class" screen and the header title).
     useEffect(() => {
         async function loadClasses() {
-            if (authLoading || !user) return;
+            if (authLoading || !user || !userProfile) return;
             setClassesLoading(true);
             setClassesError(null);
             try {
@@ -143,25 +105,9 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     lectures: [],
                 }));
                 setClasses(classesData);
-                const userQuery = query(
-                    collection(db, "users"),
-                    where("authId", "==", user.uid)
-                );
-                console.time("getDocs userQuery");
-                const snapshotUser = await getDocs(userQuery);
-                console.timeEnd("getDocs userQuery");
-                if (snapshotUser.empty) {
-                    throw new Error("User document not found");
-                }
-                const userDoc = snapshotUser.docs[0];
-                setUserProfile({
-                    name: userDoc.data().name ?? user.displayName ?? "User",
-                    email: userDoc.data().email ?? user.email ?? "",
-                    year: userDoc.data().year ?? "",
-                });
                 console.time("getDocs completedLectures");
                 const completedLecSnap = await getDocs(
-                    collection(db, "users", userDoc.id, "completedLectures")
+                    collection(db, "users", userProfile.docId, "completedLectures")
                 );
                 console.timeEnd("getDocs completedLectures");
                 const completedLectures = completedLecSnap.docs.map((doc) => ({
@@ -179,7 +125,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
             }
         }
         loadClasses();
-    }, [user, authLoading]);
+    }, [user, authLoading, userProfile]);
 
     // Load lectures whenever the selected class changes.
     useEffect(() => {
@@ -242,6 +188,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                 type: doc.data().type,
                 title: doc.data().title,
                 value: doc.data().value,
+                requiredPostTest: doc.data()?.requiredPostTest
             }));
 
             const lecOrder = lec.materialsOrder;
@@ -270,10 +217,17 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
     );
     const groupedLectures = useMemo(() => groupLecturesByDate(lectures), [lectures]);
     const completedIds = useMemo(() => new Set(completedLecs.map((c) => c.lectureId)), [completedLecs]);
+    const requiredQuizValues = selectedLecture?.materials
+        .filter((m) => m.type === "quiz" && m.requiredPostTest)
+        .map((m) => m.value) ?? [];
+    const allRequiredPassed = requiredQuizValues.every(
+        (v) => quizAttempts[v]?.passed
+    );
 
     useEffect(() => {
         if (!selectedLecture || !user) return;
         selectedLecture.materials.forEach(async (mat) => {
+            console.log(mat)
             if (mat.type === "video" && !videoUrls[mat.id] && mat.value) {
                 try {
                     const token = await user.getIdToken();
@@ -299,26 +253,46 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     console.error(err);
                 }
             }
-        });
-    }, [selectedLecture, user]);
 
-    function materialIcon(type: string) {
-        switch (type) {
-            case "video":
-            case "youtube":
-                return <Video size={16} className="shrink-0" />;
-            case "link":
-                return <LinkIcon size={16} className="shrink-0" />;
-            case "pdf":
-                return <FileText size={16} className="shrink-0" />;
-            case "text":
-                return <MessageCircleWarning size={16} className="shrink-0" />;
-            case "quiz":
-                return <FileQuestion size={16} className="shrink-0" />;
-            default:
-                return <File size={16} className="shrink-0" />;
-        }
-    }
+            if (mat.type === "quiz" && mat.value) {
+                const q = query(collection(db, "quizAttempts"),
+                    where("authId", "==", user.uid),
+                    where("quizId", "==", mat.value),
+                    where("lectureId", "==", selectedLecture?.id));
+                const snapshot = await getDocs(q);
+                if (!snapshot.empty) {
+                    const attempts = snapshot.docs.map((d) => ({
+                        id: d.id,
+                        passed: d.data().passed as boolean,
+                        completedAt: d.data().completedAt as any,
+                    }));
+                    const firstPassed = attempts
+                        .filter((a) => a.passed)
+                        .sort((a, b) => {
+                            const aTime = a.completedAt?.toDate?.()?.getTime() ?? 0;
+                            const bTime = b.completedAt?.toDate?.()?.getTime() ?? 0;
+                            return aTime - bTime;
+                        })[0];
+                    const lastAttempt = attempts.sort((a, b) => {
+                        const aTime = a.completedAt?.toDate?.()?.getTime() ?? 0;
+                        const bTime = b.completedAt?.toDate?.()?.getTime() ?? 0;
+                        return bTime - aTime;
+                    })[0];
+                    setQuizAttempts((prev) => ({
+                        ...prev,
+                        [mat.value]: {
+                            passed: !!firstPassed,
+                            completedAt: firstPassed
+                                ? firstPassed.completedAt?.toDate?.() ?? null
+                                : lastAttempt.completedAt?.toDate?.() ?? null,
+                        },
+                    }));
+                }
+            }
+
+        });
+    }, [selectedLecture, user, displayQuiz]);
+
     async function completedLec() {
         if (completingLec) return;
         if (selection?.level !== "lecture" || !user) return;
@@ -402,25 +376,24 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
 
             <div className="flex min-h-0 flex-1">
                 <aside
-                    className={`flex flex-col border-r border-ink-900/8 bg-white px-2 py-3 ${classId ? 'hidden md:flex md:w-[300px] md:shrink-0' : 'flex w-full md:w-[300px] md:shrink-0'
+                    className={`flex flex-col border-r border-ink-900/8 bg-white ${classId ? 'hidden md:flex md:w-[300px] md:shrink-0' : 'flex w-full md:w-[300px] md:shrink-0'
                         }`}
                 >
-                    {userProfile && (
-                        <div className="flex items-center gap-3 px-2 pb-4 mb-4 border-b border-ink-900/8">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-iris-600 text-sm font-semibold text-white">
-                                {userProfile.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-medium text-ink-900">{userProfile.name}</p>
-                                <p className="truncate text-xs text-ink-900/50">{userProfile.email}</p>
-                                {userProfile.year && (
-                                    <p className="text-xs text-ink-900/40">Year {userProfile.year}</p>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                    <div className="flex-1 overflow-y-auto">
-                        <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-900/40">
+                    <div className="flex-1 overflow-y-auto px-2 pt-3">
+                        {userProfile && (
+                            <UserInfoCard
+                                name={userProfile.name}
+                                email={userProfile.email}
+                                year={userProfile.year}
+                                role={userProfile.role}
+                            />
+                        )}
+                        <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-ink-300">
+                            Navigation
+                        </p>
+                        <NavigationList isAdmin={userProfile?.role === "admin" || userProfile?.role === "teacher"} />
+                        <div className="mx-2 my-2 border-t border-ink-900/8" />
+                        <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-300">
                             Classes
                         </p>
                         {classesLoading ? (
@@ -447,13 +420,15 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                             ))
                         )}
                     </div>
-                    <button
-                        onClick={handleLogout}
-                        className="mt-3 flex shrink-0 items-center gap-2 rounded-md px-2 py-2 text-sm text-red-500 hover:bg-red-500/5 transition-colors"
-                    >
-                        <LogOut size={16} />
-                        Sign Out
-                    </button>
+                    <div className="border-t border-ink-900/8 px-2 py-2">
+                        <button
+                            onClick={handleLogout}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium text-ink-500 transition hover:bg-red-50 hover:text-red-600"
+                        >
+                            <LogOut className="h-4 w-4" />
+                            Sign out
+                        </button>
+                    </div>
                 </aside>
 
                 {!classId ? (
@@ -521,8 +496,8 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                                             type="button"
                                                             onClick={() => handleLecSelection(lec)}
                                                             className={`block w-full rounded-md py-2 px-2 md:py-1.5 text-left transition-colors ${selection?.level === "lecture" && selection.lectureId === lec.id
-                                                                ? "bg-iris-600/10"
-                                                                : "hover:bg-ink-900/5"
+                                                                    ? "bg-iris-600/10"
+                                                                    : "hover:bg-ink-900/5"
                                                                 }`}
                                                         >
                                                             <div className="flex items-center gap-2">
@@ -556,9 +531,32 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                         <ChevronLeft size={16} />
                                         Back to materials
                                     </button>
-                                    <QuizTaker quizId={displayQuiz} />
+                                    <QuizTaker key={quizViewKey} quizId={displayQuiz} lectureId={selectedLecture!.id} onComplete={(result) => setQuizResult(result)} />
                                 </div>
                             ) : null}
+                            {quizResult && (
+                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setQuizResult(null); setDisplayQuiz(null); }}>
+                                    <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-8 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                                        <p className={`text-5xl font-bold text-center ${quizResult.passed ? 'text-emerald-600' : 'text-red-500'}`}>
+                                            {quizResult.pct}%
+                                        </p>
+                                        <div className="mt-3 flex justify-center">
+                                            <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold ${quizResult.passed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                                {quizResult.passed ? 'Passed' : 'Failed'}
+                                            </span>
+                                        </div>
+                                        <p className="mt-4 text-center text-sm text-ink-500">
+                                            {quizResult.score} / {quizResult.totalPoints} points
+                                        </p>
+                                        <button
+                                            onClick={() => { setQuizResult(null); setQuizViewKey((k) => k + 1); }}
+                                            className="mt-6 flex w-full items-center justify-center rounded-lg bg-gradient-to-b from-iris-500 to-iris-700 px-4 py-2 text-sm font-semibold text-white shadow-button transition hover:from-iris-500 hover:to-iris-800"
+                                        >
+                                            View quiz attempts
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             {!displayQuiz && (!selectedLecture ? (
                                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                                     <p className="text-sm font-medium text-ink-900">Select a lecture</p>
@@ -634,155 +632,13 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                                     const color = MATERIAL_COLOR[mat.type];
                                                     return (
                                                         <li key={mat.id}>
-                                                            {mat.type === "text" ? (
-                                                                <div className="group flex items-start gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
-                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                        {materialIcon(mat.type)}
-                                                                    </div>
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <p className="truncate text-sm font-medium text-ink-900">
-                                                                                {mat.title}
-                                                                            </p>
-                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                                {materialTypeLabel(mat.type)}
-                                                                            </span>
-                                                                        </div>
-                                                                        <p className="mt-1 whitespace-pre-wrap text-xs text-ink-900/70">
-                                                                            {mat.value || "No content"}
-                                                                        </p>
-                                                                    </div>
-                                                                </div>
-                                                            ) : mat.type === "youtube" && mat.value ? (
-                                                                (() => {
-                                                                    const url = mat.value;
-                                                                    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/);
-                                                                    const videoId = match ? match[1] : null;
-                                                                    const embedSrc = videoId ? `https://www.youtube.com/embed/${videoId}` : url;
-                                                                    return (
-                                                                        <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
-                                                                            <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
-                                                                                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                                    {materialIcon(mat.type)}
-                                                                                </div>
-                                                                                <p className="truncate text-sm font-medium text-ink-900">
-                                                                                    {mat.title}
-                                                                                </p>
-                                                                                <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                                    {materialTypeLabel(mat.type)}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div className="aspect-video">
-                                                                                <iframe
-                                                                                    src={embedSrc}
-                                                                                    className="h-full w-full"
-                                                                                    allow="autoplay; encrypted-media; picture-in-picture"
-                                                                                    allowFullScreen
-                                                                                />
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })()
-                                                            ) : mat.type === "video" && videoUrls[mat.id] ? (
-                                                                <div className="overflow-hidden rounded-lg border border-ink-900/8 bg-white shadow">
-                                                                    <div className="flex items-center gap-2 border-b border-ink-900/8 px-3 py-2">
-                                                                        <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                            {materialIcon(mat.type)}
-                                                                        </div>
-                                                                        <p className="truncate text-sm font-medium text-ink-900">
-                                                                            {mat.title}
-                                                                        </p>
-                                                                        <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                            {materialTypeLabel(mat.type)}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className="aspect-video">
-                                                                        <iframe
-                                                                            src={videoUrls[mat.id]}
-                                                                            className="h-full w-full"
-                                                                            allow="encrypted-media; picture-in-picture"
-                                                                            allowFullScreen
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            ) : mat.type === "quiz" && mat.value ? (
-                                                                <button
-                                                                    onClick={() => setDisplayQuiz(mat.value)}
-                                                                    className="group flex w-full items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5 transition-colors hover:bg-ink-900/5 text-left"
-                                                                >
-                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                        {materialIcon(mat.type)}
-                                                                    </div>
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <p className="truncate text-sm font-medium text-ink-900">
-                                                                                {mat.title}
-                                                                            </p>
-                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                                {materialTypeLabel(mat.type)}
-                                                                            </span>
-                                                                            {(mat as any).requiredPostTest && (
-                                                                                <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 uppercase tracking-wide">
-                                                                                    Required
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        <p className="text-xs text-ink-900/40">
-                                                                            Click to take quiz
-                                                                        </p>
-                                                                    </div>
-                                                                    <ExternalLink
-                                                                        size={14}
-                                                                        className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
-                                                                    />
-                                                                </button>
-                                                            ) : mat.value ? (
-                                                                <a
-                                                                    href={mat.value}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="group flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5 transition-colors hover:bg-ink-900/5"
-                                                                >
-                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                        {materialIcon(mat.type)}
-                                                                    </div>
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <p className="truncate text-sm font-medium text-ink-900">
-                                                                                {mat.title}
-                                                                            </p>
-                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                                {materialTypeLabel(mat.type)}
-                                                                            </span>
-                                                                        </div>
-                                                                        <p className="truncate text-xs text-ink-900/40">
-                                                                            {mat.type === "link" || mat.type === "pdf"
-                                                                                ? mat.value
-                                                                                : getFileNameFromUrl(mat.value)}
-                                                                        </p>
-                                                                    </div>
-                                                                    <ExternalLink
-                                                                        size={14}
-                                                                        className="shrink-0 text-ink-900/30 opacity-0 transition-opacity group-hover:opacity-100"
-                                                                    />
-                                                                </a>
-                                                            ) : (
-                                                                <div className="flex items-center gap-3 rounded-md border border-ink-900/8 bg-white shadow px-3 py-2.5">
-                                                                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${color.bg} ${color.text}`}>
-                                                                        {materialIcon(mat.type)}
-                                                                    </div>
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <p className="truncate text-sm font-medium text-ink-900">
-                                                                                {mat.title}
-                                                                            </p>
-                                                                            <span className={`shrink-0 rounded-full ${color.bg} ${color.text} px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide`}>
-                                                                                {materialTypeLabel(mat.type)}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            )}
+                                                            <MaterialRenderer
+                                                                material={mat}
+                                                                color={color}
+                                                                videoUrls={videoUrls}
+                                                                onStartQuiz={(quizId) => setDisplayQuiz(quizId)}
+                                                                quizAttempts={quizAttempts}
+                                                            />
                                                         </li>
                                                     );
                                                 })}
@@ -793,7 +649,12 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                             ))}
                             <button
                                 onClick={() => completedLec()}
-                                disabled={!selectedLecture || completingLec || (selectedLecture && completedIds.has(selectedLecture.id))}
+                                disabled={
+                                    !selectedLecture ||
+                                    completingLec ||
+                                    (selectedLecture && completedIds.has(selectedLecture.id)) ||
+                                    (selectedLecture && !allRequiredPassed)
+                                }
                                 className="mt-5 inline-flex items-center gap-2 rounded-lg bg-gradient-to-b from-teal-500 to-teal-700 px-4 py-2.5 md:py-2 text-sm font-semibold text-white transition hover:from-teal-500 hover:to-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 {completingLec ? (
@@ -806,8 +667,15 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                         <path d="M20 6L9 17l-5-5" />
                                     </svg>
                                 )}
-                                {completingLec ? "Marking..." : selectedLecture && completedIds.has(selectedLecture.id) ? "Completed" : "Mark as completed"}
+                                {completingLec
+                                    ? "Marking..."
+                                    : selectedLecture && completedIds.has(selectedLecture.id)
+                                        ? "Completed"
+                                        : "Mark as completed"}
                             </button>
+                            {selectedLecture && !allRequiredPassed && (
+                                <p className="mt-1.5 text-xs text-red-500">Please complete the required posttest first</p>
+                            )}
                         </div>
                     </main>
                 )}

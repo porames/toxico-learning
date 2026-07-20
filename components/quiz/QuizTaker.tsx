@@ -2,15 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, addDoc, collection, serverTimestamp, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { Play, CheckCircle, XCircle } from "lucide-react";
 import type { Quiz, Question, QuizAttempt } from "./types";
-import { gradeQuiz } from "@/lib/quiz";
 import moment from "moment";
 
-export default function QuizTaker({ quizId }: { quizId: string }) {
+export default function QuizTaker({ quizId, lectureId, onComplete }: { quizId: string; lectureId: string; onComplete?: (result: { id: string; score: number; totalPoints: number; passed: boolean; pct: number }) => void }) {
   const router = useRouter();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,8 +47,10 @@ export default function QuizTaker({ quizId }: { quizId: string }) {
     async function loadAttempts() {
       try {
         const q = query(
-          collection(db, "users", userId as string, "quizAttempts"),
-          where("quizId", "==", quizId)
+          collection(db, "quizAttempts"),
+          where("authId", "==", userId),
+          where("quizId", "==", quizId),
+          where("lectureId", "==", lectureId)
         );
         const snap = await getDocs(q);
         setPreviousAttempts(
@@ -60,7 +61,7 @@ export default function QuizTaker({ quizId }: { quizId: string }) {
       }
     }
     loadAttempts();
-  }, [userId, quizId]);
+  }, [userId, quizId, lectureId]);
 
   const questions = useMemo(() => {
     if (!quiz) return [];
@@ -82,21 +83,31 @@ export default function QuizTaker({ quizId }: { quizId: string }) {
     if (!quiz || !userId) return;
     setSubmitting(true);
     try {
-      const { score, totalPoints, passed, graded } = gradeQuiz(quiz.questions, answers);
-      const attemptRef = await addDoc(collection(db, "users", userId, "quizAttempts"), {
-        quizId,
-        userId,
-        score,
-        totalPoints,
-        passed,
-        answers: graded.map((g) => ({
-          questionId: g.questionId,
-          answer: answers[g.questionId] || "",
-          correct: g.correct,
-        })),
-        completedAt: serverTimestamp(),
-      });
-      router.push(`/quiz/${quizId}/results/${attemptRef.id}`);
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch(
+        "https://us-central1-rama-toxico-edu.cloudfunctions.net/submitQuiz",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ quizId, lectureId, answers }),
+        },
+      );
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to submit quiz");
+      }
+
+      const data = await res.json();
+      if (onComplete) {
+        onComplete(data);
+        setSubmitting(false);
+        return;
+      }
+      router.push(`/quiz/${quizId}/results/${data.id}`);
     } catch (err) {
       console.error(err);
       setSubmitting(false);
@@ -128,11 +139,12 @@ export default function QuizTaker({ quizId }: { quizId: string }) {
   const allAnswered = answeredCount >= totalQuestions;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-xl px-8 py-10">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-ink-900">{quiz.title}</h1>
-          <p className="mt-1 text-[14px] text-ink-500">
+          <p className="text-[12px] font-medium uppercase tracking-wider text-ink-300">Taking quiz</p>
+          <h1 className="mt-1 text-[18px] font-semibold text-ink-900">{quiz.title}</h1>
+          <p className="mt-0.5 text-[13px] text-ink-500">
             {answeredCount} of {totalQuestions} answered
           </p>
         </div>
@@ -146,7 +158,7 @@ export default function QuizTaker({ quizId }: { quizId: string }) {
         </div>
       </div>
 
-      <div className="mt-8 space-y-6">
+      <div className="mt-8 space-y-4">
         {questions.map((q, i) => (
           <QuestionBlock
             key={q.id}
@@ -158,11 +170,11 @@ export default function QuizTaker({ quizId }: { quizId: string }) {
         ))}
       </div>
 
-      <div className="mt-10 border-t border-ink-900/10 pt-6">
+      <div className="mt-9 border-t border-ink-900/10 pt-6">
         <button
           onClick={handleSubmit}
           disabled={submitting || !allAnswered}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-iris-500 to-iris-700 px-3.5 py-2 text-[13px] font-semibold text-white shadow-button transition hover:from-iris-500 hover:to-iris-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? (
             <>
@@ -191,14 +203,14 @@ function StartPage({
 }) {
   const latestAttempt = previousAttempts.length > 0
     ? previousAttempts.reduce((a, b) => {
-        const aTime = a.completedAt?.toDate?.()?.getTime() ?? 0;
-        const bTime = b.completedAt?.toDate?.()?.getTime() ?? 0;
-        return aTime > bTime ? a : b;
-      })
+      const aTime = a.completedAt?.toDate?.()?.getTime() ?? 0;
+      const bTime = b.completedAt?.toDate?.()?.getTime() ?? 0;
+      return aTime > bTime ? a : b;
+    })
     : null;
 
   return (
-    <div className="mx-auto max-w-xl px-6 py-10">
+    <div className="mx-auto max-w-xl px-8 py-10">
       <div className="rounded-xl border border-ink-900/10 bg-white p-8 shadow-soft">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-ink-900">{quiz.title}</h1>
@@ -304,11 +316,10 @@ function QuestionBlock({
           question.options.map((opt) => (
             <label
               key={opt.id}
-              className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-[14px] transition ${
-                answer === opt.id
-                  ? "border-iris-400 bg-iris-50 text-iris-700"
-                  : "border-ink-900/10 text-ink-700 hover:border-ink-900/20"
-              }`}
+              className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-[14px] transition ${answer === opt.id
+                ? "border-iris-400 bg-iris-50 text-iris-700"
+                : "border-ink-900/10 text-ink-700 hover:border-ink-900/20"
+                }`}
             >
               <input
                 type="radio"
@@ -328,11 +339,10 @@ function QuestionBlock({
             return (
               <label
                 key={opt.id}
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-[14px] transition ${
-                  checked
-                    ? "border-iris-400 bg-iris-50 text-iris-700"
-                    : "border-ink-900/10 text-ink-700 hover:border-ink-900/20"
-                }`}
+                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-[14px] transition ${checked
+                  ? "border-iris-400 bg-iris-50 text-iris-700"
+                  : "border-ink-900/10 text-ink-700 hover:border-ink-900/20"
+                  }`}
               >
                 <input
                   type="checkbox"
@@ -357,11 +367,10 @@ function QuestionBlock({
             {question.options.map((opt) => (
               <label
                 key={opt.id}
-                className={`flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-3 text-[14px] font-medium transition ${
-                  answer === opt.id
-                    ? "border-iris-400 bg-iris-50 text-iris-700"
-                    : "border-ink-900/10 text-ink-600 hover:border-ink-900/20"
-                }`}
+                className={`flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 py-3 text-[14px] font-medium transition ${answer === opt.id
+                  ? "border-iris-400 bg-iris-50 text-iris-700"
+                  : "border-ink-900/10 text-ink-600 hover:border-ink-900/20"
+                  }`}
               >
                 <input
                   type="radio"

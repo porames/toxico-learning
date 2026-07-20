@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 
 const fieldClass =
   "w-full rounded-md bg-white px-3 py-2 text-[14px] text-ink-900 placeholder:text-ink-300 outline-1 -outline-offset-1 outline-ink-900/15 focus:outline-2 focus:-outline-offset-2 focus:outline-iris-500 transition";
@@ -44,21 +44,18 @@ export default function CreateQuizForm() {
   }
 
   return (
-    <div className="mx-auto max-w-xl px-6 py-10">
+    <div className="mx-auto max-w-xl px-8 py-10">
       <button
         onClick={() => router.back()}
-        className="mb-6 flex items-center gap-1.5 text-[13.5px] font-medium text-ink-500 hover:text-ink-900 transition"
+        className="flex items-center gap-1.5 text-[13.5px] font-medium text-ink-500 hover:text-ink-900 transition"
       >
         <ArrowLeft className="h-4 w-4" />
         Back
       </button>
 
-      <h1 className="text-2xl font-bold text-ink-900">Create quiz</h1>
-      <p className="mt-1 text-[14px] text-ink-500">
-        Set up a new quiz for your students.
-      </p>
+      <p className="mt-6 text-[12px] font-medium uppercase tracking-wider text-ink-300">New quiz</p>
 
-      <div className="mt-8 space-y-6">
+      <div className="mt-4 space-y-6">
         <div>
           <label className={labelClass}>Quiz title</label>
           <input
@@ -103,7 +100,7 @@ export default function CreateQuizForm() {
         <button
           onClick={handleCreate}
           disabled={saving || !title.trim()}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-iris-500 to-iris-700 px-3.5 py-2 text-[13px] font-semibold text-white shadow-button transition hover:from-iris-500 hover:to-iris-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? (
             <>
@@ -112,7 +109,7 @@ export default function CreateQuizForm() {
             </>
           ) : (
             <>
-              <Save className="h-4 w-4" />
+              <Plus className="h-3.5 w-3.5" />
               Create quiz
             </>
           )}

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { Plus, Trash2, Save, ArrowLeft, ChevronDown } from "lucide-react";
+import { Plus, Trash2, ChevronDown } from "lucide-react";
 import type { Option, Question, QuestionType, Quiz } from "./types";
 import { QUESTION_TYPE_LABELS } from "./types";
 
@@ -121,102 +121,97 @@ export default function QuizCreator({ quizId }: { quizId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <button
-        onClick={() => router.push("/quiz")}
-        className="mb-6 flex items-center gap-1.5 text-[13.5px] font-medium text-ink-500 hover:text-ink-900 transition"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        All quizzes
-      </button>
+    <div className="mx-auto max-w-xl px-8 py-10">
+      <p className="text-[12px] font-medium uppercase tracking-wider text-ink-300">Quiz</p>
 
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <label className={labelClass}>Quiz title</label>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className={fieldClass}
-            placeholder="e.g. Cardiology Quiz 1"
-          />
+      <div className="mt-4 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <label className={labelClass}>Quiz title</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className={fieldClass}
+              placeholder="e.g. Cardiology Quiz 1"
+            />
+          </div>
+          <button
+            onClick={saveChanges}
+            disabled={saving}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-b from-iris-500 to-iris-700 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-button transition hover:from-iris-500 hover:to-iris-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Saving…
+              </>
+            ) : (
+              "Save"
+            )}
+          </button>
         </div>
-        <button
-          onClick={saveChanges}
-          disabled={saving}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-[13px] font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {saving ? (
-            <>
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              Saving…
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Save
-            </>
-          )}
-        </button>
+
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <label className={labelClass}>Passing score:</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={passingScore}
+              onChange={(e) => setPassingScore(Number(e.target.value))}
+              className={`${fieldClass} w-20 text-center`}
+            />
+            <span className="text-[13px] text-ink-300">%</span>
+          </div>
+          <label className="flex items-center gap-2 text-[13px] text-ink-500">
+            <input
+              type="checkbox"
+              checked={shuffle}
+              onChange={(e) => setShuffle(e.target.checked)}
+              className="h-4 w-4 rounded border-ink-900/20 text-iris-500"
+            />
+            Shuffle questions
+          </label>
+        </div>
       </div>
 
-      <div className="mt-6 flex items-center gap-6">
-        <div className="flex items-center gap-2">
-          <label className={labelClass}>Passing score:</label>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={passingScore}
-            onChange={(e) => setPassingScore(Number(e.target.value))}
-            className={`${fieldClass} w-20 text-center`}
-          />
-          <span className="text-[13px] text-ink-300">%</span>
-        </div>
-        <label className="flex items-center gap-2 text-[13px] text-ink-500">
-          <input
-            type="checkbox"
-            checked={shuffle}
-            onChange={(e) => setShuffle(e.target.checked)}
-            className="h-4 w-4 rounded border-ink-900/20 text-iris-500"
-          />
-          Shuffle questions
-        </label>
-      </div>
-
-      <div className="mt-8 space-y-4">
+      <div className="mt-9 border-t border-ink-900/10 pt-6">
         <p className="text-[15px] font-semibold text-ink-900">
           Questions
           <span className="ml-1.5 font-normal text-ink-300">({questions.length})</span>
         </p>
 
-        {questions.length === 0 && (
-          <div className="rounded-xl border border-dashed border-ink-900/15 py-12 text-center">
-            <p className="text-[14px] text-ink-400">No questions yet.</p>
-            <p className="mt-0.5 text-[13px] text-ink-300">
-              Click the button below to add your first question.
-            </p>
-          </div>
-        )}
+        <div className="mt-4 space-y-3">
+          {questions.length === 0 && (
+            <div className="rounded-xl border border-dashed border-ink-900/15 py-12 text-center">
+              <p className="text-[14px] text-ink-400">No questions yet.</p>
+              <p className="mt-0.5 text-[13px] text-ink-300">
+                Click the button below to add your first question.
+              </p>
+            </div>
+          )}
 
-        {questions.map((q, i) => (
-          <QuestionCard
-            key={q.id}
-            question={q}
-            index={i}
-            expanded={expandedQuestion === q.id}
-            onToggle={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}
-            onUpdate={(patch) => updateQuestion(q.id, patch)}
-            onDelete={() => deleteQuestion(q.id)}
-          />
-        ))}
+          {questions.map((q, i) => (
+            <QuestionCard
+              key={q.id}
+              question={q}
+              index={i}
+              expanded={expandedQuestion === q.id}
+              onToggle={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}
+              onUpdate={(patch) => updateQuestion(q.id, patch)}
+              onDelete={() => deleteQuestion(q.id)}
+            />
+          ))}
 
-        <button
-          onClick={addQuestion}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink-900/10 py-3 text-[14px] font-medium text-ink-500 transition hover:border-iris-400 hover:text-iris-600"
-        >
-          <Plus className="h-4 w-4" />
-          Add question
-        </button>
+          <button
+            onClick={addQuestion}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink-900/15 bg-white px-3 py-2 text-[13px] font-medium text-ink-500 transition hover:border-iris-400 hover:text-iris-600"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add question
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,9 +1,9 @@
-import QuizTaker from "@/components/quiz/QuizTaker";
+import { redirect } from "next/navigation";
 
 export const metadata = {
   title: "Take Quiz",
 };
 
 export default function TakeQuizPage({ params }: { params: { id: string } }) {
-  return <QuizTaker quizId={params.id} />;
+  redirect(`/quiz/${params.id}`);
 }

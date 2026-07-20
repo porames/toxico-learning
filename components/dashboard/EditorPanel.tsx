@@ -29,7 +29,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, FileQuestion, X } from "lucide-react";
+import { GripVertical, FileQuestion, X, ChevronRight } from "lucide-react";
 import moment from "moment";
 
 const fieldClass =
@@ -90,7 +90,8 @@ export function ClassEditor({
   onDelete,
   onAddLecture,
   onEnrolStudents,
-  onSelect
+  onSelect,
+  onBackToClasses,
 }: {
   cls: ClassItem;
   onRename: (patch: Partial<Pick<ClassItem, "name" | "code">>) => void;
@@ -98,6 +99,7 @@ export function ClassEditor({
   onAddLecture: () => void;
   onEnrolStudents: () => void;
   onSelect: (selection: Selection) => void;
+  onBackToClasses?: () => void;
 }) {
   const [saving, setSaving] = useState<boolean>(false);
   async function saveChanges() {
@@ -119,6 +121,17 @@ export function ClassEditor({
   }
   return (
     <div className="mx-auto max-w-xl px-8 py-10">
+      <div className="md:hidden flex items-center gap-1.5 mb-4">
+        {onBackToClasses ? (
+          <button type="button" onClick={onBackToClasses} className="text-[12px] text-ink-400 hover:text-iris-600 transition-colors">
+            All Classes
+          </button>
+        ) : (
+          <span className="text-[12px] text-ink-400">All Classes</span>
+        )}
+        <ChevronRight className="h-3 w-3 text-ink-300" />
+        <span className="text-[12px] font-medium text-ink-900">{cls.name}</span>
+      </div>
       <p className="text-[12px] font-medium uppercase tracking-wider text-ink-300">Class</p>
       <div className="mt-4 grid grid-cols-[1fr_auto] gap-3">
         <div>
@@ -241,21 +254,27 @@ export function ClassEditor({
 export function LectureEditor({
   lecture,
   classId,
+  className,
   highlightMaterialId,
   onUpdate,
   onDelete,
   onAddMaterial,
   onUpdateMaterial,
   onDeleteMaterial,
+  onSelect,
+  onBackToClasses,
 }: {
   lecture: Lecture;
   classId: string,
+  className?: string;
   highlightMaterialId?: string;
   onUpdate: (patch: Partial<Pick<Lecture, "title" | "startTime" | "endTime">>) => void;
   onDelete: () => void;
   onAddMaterial: (type: MaterialType) => void;
   onUpdateMaterial: (materialId: string, patch: Partial<Pick<Material, "title" | "value">>) => void;
   onDeleteMaterial: (materialId: string) => void;
+  onSelect?: (selection: Selection) => void;
+  onBackToClasses?: () => void;
 }) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState<boolean>(false);
@@ -423,6 +442,25 @@ export function LectureEditor({
 
   return (
     <div className="mx-auto max-w-xl px-8 py-10">
+      <div className="md:hidden flex items-center gap-1.5 mb-4">
+        {onBackToClasses ? (
+          <button type="button" onClick={onBackToClasses} className="text-[12px] text-ink-400 hover:text-iris-600 transition-colors">
+            All Classes
+          </button>
+        ) : (
+          <span className="text-[12px] text-ink-400">All Classes</span>
+        )}
+        <ChevronRight className="h-3 w-3 text-ink-300" />
+        {onSelect && className ? (
+          <button type="button" onClick={() => onSelect({ level: "class", classId })} className="text-[12px] text-ink-400 hover:text-iris-600 transition-colors">
+            {className}
+          </button>
+        ) : (
+          <span className="text-[12px] text-ink-400">{className || classId}</span>
+        )}
+        <ChevronRight className="h-3 w-3 text-ink-300" />
+        <span className="text-[12px] font-medium text-ink-900">{lecture.title || "Untitled lecture"}</span>
+      </div>
       <div className="flex item-center justify-between">
         <p className="text-[12px] font-medium uppercase tracking-wider text-ink-300">Lecture</p>
         <button
@@ -1014,7 +1052,7 @@ function MaterialCard({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        window.open(`/quiz/${material.value}`, "_blank");
+                        window.open(`/quiz/${material.value}/edit`, "_blank");
                       }}
                       className="ml-auto text-[12px] font-medium text-iris-600 underline hover:text-iris-700"
                     >

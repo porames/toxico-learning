@@ -118,7 +118,7 @@ export const MATERIAL_COLOR: Record<MaterialType, { text: string; bg: string; ri
   pdf: { text: "text-mesh-amber", bg: "bg-mesh-amber/10", ring: "ring-mesh-amber/25" },
   link: { text: "text-mesh-blue", bg: "bg-mesh-blue/10", ring: "ring-mesh-blue/25" },
   text: { text: "text-mesh-teal", bg: "bg-mesh-teal/10", ring: "ring-mesh-teal/25" },
-  file: { text: "text-mesh-sky", bg: "bg-mesh-sky/10", ring: "ring-mesh-sky/25" },
+  file: { text: "text-mesh-amber", bg: "bg-mesh-amber/10", ring: "ring-mesh-amber/25" },
   video: { text: "text-rose-500", bg: "bg-rose-500/10", ring: "ring-rose-500/25" },
   quiz: { text: "text-iris-600", bg: "bg-iris-500/10", ring: "ring-iris-500/25" },
 };

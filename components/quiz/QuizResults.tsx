@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { ArrowLeft, CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, XCircle } from "lucide-react";
 import type { Quiz, QuizAttempt, Question } from "./types";
 import { getOptionLabel } from "./types";
 
@@ -34,7 +34,7 @@ export default function QuizResults({
         const { uid } = auth.currentUser!;
         const [quizSnap, attemptSnap] = await Promise.all([
           getDoc(doc(db, "quizzes", quizId)),
-          getDoc(doc(db, "users", uid, "quizAttempts", attemptId)),
+          getDoc(doc(db, "quizAttempts", attemptId)),
         ]);
         if (!quizSnap.exists() || !attemptSnap.exists()) {
           router.push("/quiz");
@@ -67,18 +67,12 @@ export default function QuizResults({
       : 0;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <button
-        onClick={() => router.push("/quiz")}
-        className="mb-6 flex items-center gap-1.5 text-[13.5px] font-medium text-ink-500 hover:text-ink-900 transition"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        All quizzes
-      </button>
+    <div className="mx-auto max-w-xl px-8 py-10">
+      <p className="text-[12px] font-medium uppercase tracking-wider text-ink-300">Results</p>
 
-      <div className="rounded-xl border border-ink-900/10 bg-white p-6 shadow-soft">
+      <div className="mt-4 rounded-xl border border-ink-900/10 bg-white p-8 shadow-soft">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-ink-900">{quiz.title}</h1>
+          <p className="text-[15px] font-semibold text-ink-900">{quiz.title}</p>
           <div className="mt-6 flex items-center justify-center gap-4">
             <span
               className={`text-5xl font-bold ${attempt.passed ? "text-emerald-600" : "text-red-500"}`}
@@ -116,21 +110,24 @@ export default function QuizResults({
         </div>
       </div>
 
-      <div className="mt-8 space-y-4">
+      <div className="mt-9 border-t border-ink-900/10 pt-6">
         <p className="text-[15px] font-semibold text-ink-900">
           Review
           <span className="ml-1.5 font-normal text-ink-300">
             ({quiz.questions.length} questions)
           </span>
         </p>
-        {quiz.questions.map((q, i) => (
-          <ResultCard
-            key={q.id}
-            question={q}
-            index={i}
-            attemptAnswer={attempt.answers.find((a) => a.questionId === q.id)}
-          />
-        ))}
+
+        <div className="mt-4 space-y-3">
+          {quiz.questions.map((q, i) => (
+            <ResultCard
+              key={q.id}
+              question={q}
+              index={i}
+              attemptAnswer={attempt.answers.find((a) => a.questionId === q.id)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
