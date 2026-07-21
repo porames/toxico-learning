@@ -1,6 +1,22 @@
 "use client"
 
-import React, { useState, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
+import {
+    ReactFlow,
+    Background,
+    Controls,
+    useNodesState,
+    useEdgesState,
+    addEdge as rfAddEdge,
+    MarkerType,
+    type Node,
+    type Edge,
+    type Connection,
+    type OnNodesChange,
+    type OnEdgesChange,
+    type OnConnect,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import type {
     CaseData, HistoryNode, HistoryEdge, HistoryGraph,
     HistoryCategoryType, StepProps,
@@ -11,35 +27,155 @@ import {
 import {
     inputStyle, TextInput, TextArea, Field, PrimaryButton, GhostButton, Card, SectionHeading,
 } from "./ui";
+import { Trash2 } from "lucide-react";
+import HistoryGraphNodeComponent from "./HistoryGraphNode";
+import HistoryGraphEdgeComponent from "./HistoryGraphEdge";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
-const NODE_W = 240;
-const NODE_H = 100;
 
-function edgePath(x1: number, y1: number, x2: number, y2: number) {
-    const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
-    return `M ${x1},${y1} C ${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
-}
-
-function catDef(cat: string) {
-    return HISTORY_CATEGORIES.find((c) => c.key === cat) ?? HISTORY_CATEGORIES[0];
-}
+const nodeTypes = {
+    historyNode: HistoryGraphNodeComponent,
+};
+const edgeTypes = {
+    historyEdge: HistoryGraphEdgeComponent,
+};
 
 export default function StepHistory({ data, update }: StepProps) {
     const graph = data.historyGraph ?? { nodes: [], edges: [] };
-    const canvasRef = useRef<HTMLDivElement>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [connectLine, setConnectLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-    const [scale, setScale] = useState(1);
     const [activeCat, setActiveCat] = useState<HistoryCategoryType>("signs_symptoms");
 
     const setGraph = (patch: Partial<HistoryGraph>) => update({ historyGraph: { ...graph, ...patch } });
 
-    const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } => {
-        const el = canvasRef.current!;
-        const rect = el.getBoundingClientRect();
-        return { x: (clientX - rect.left + el.scrollLeft) / scale, y: (clientY - rect.top + el.scrollTop) / scale };
-    };
+    // Filtered nodes/edges for the active category
+    const catNodes = useMemo(
+        () => graph.nodes.filter((n) => n.data.category === activeCat),
+        [graph.nodes, activeCat]
+    );
+    const catEdges = useMemo(
+        () => graph.edges.filter((e) => {
+            const src = graph.nodes.find((n) => n.id === e.source);
+            const tgt = graph.nodes.find((n) => n.id === e.target);
+            return src && tgt && src.data.category === activeCat && tgt.data.category === activeCat;
+        }),
+        [graph.nodes, graph.edges, activeCat]
+    );
+
+    // React Flow state
+    const [rfNodes, setRfNodes, onNodesChangeBase] = useNodesState<Node>([]);
+    const [rfEdges, setRfEdges, onEdgesChangeBase] = useEdgesState<Edge>([]);
+
+    // Sync from graph to RF when category/structure/selection changes
+    useEffect(() => {
+        setRfNodes(
+            catNodes.map((n) => ({
+                id: n.id,
+                type: "historyNode",
+                position: { x: n.x, y: n.y },
+                data: { ...n.data },
+                selected: n.id === selectedId,
+            }))
+        );
+        setRfEdges(
+            catEdges.map((e) => ({
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                type: "historyEdge",
+                data: { onDelete: deleteEdge },
+                markerEnd: { type: MarkerType.ArrowClosed, color: C.lineStrong },
+                style: { stroke: C.lineStrong, strokeWidth: 2 },
+                selected: e.id === selectedId,
+            }))
+        );
+    }, [activeCat, catNodes, catEdges, selectedId, setRfNodes, setRfEdges]);
+
+    // Node changes — sync final positions to parent on drag end
+    const onNodesChange: OnNodesChange = useCallback(
+        (changes) => {
+            onNodesChangeBase(changes);
+            for (const ch of changes) {
+                if (ch.type === "position" && !ch.dragging && ch.position) {
+                    setGraph({
+                        nodes: graph.nodes.map((n) =>
+                            n.id === ch.id
+                                ? { ...n, x: Math.max(0, ch.position!.x), y: Math.max(0, ch.position!.y) }
+                                : n
+                        ),
+                    });
+                }
+                if (ch.type === "select") {
+                    setSelectedId(ch.selected ? ch.id : null);
+                }
+            }
+        },
+        [graph.nodes, setGraph, onNodesChangeBase]
+    );
+
+    // Edge changes — handle selection & deletions
+    const onEdgesChange: OnEdgesChange = useCallback(
+        (changes) => {
+            onEdgesChangeBase(changes);
+            for (const ch of changes) {
+                if (ch.type === "remove") {
+                    setGraph({
+                        edges: graph.edges.filter((e) => e.id !== ch.id),
+                    });
+                }
+                if (ch.type === "select") {
+                    setSelectedId(ch.selected ? ch.id : null);
+                }
+            }
+        },
+        [graph.edges, setGraph, onEdgesChangeBase]
+    );
+
+    // Connection — add new edge
+    const onConnect: OnConnect = useCallback(
+        (connection) => {
+            if (!connection.source || !connection.target) return;
+            const src = graph.nodes.find((n) => n.id === connection.source);
+            const tgt = graph.nodes.find((n) => n.id === connection.target);
+            if (!src || !tgt) return;
+            if (src.data.category !== tgt.data.category) return;
+            if (graph.edges.some((e) => e.source === connection.source && e.target === connection.target)) return;
+
+            const id = uid();
+            const newEdge = { id, source: connection.source, target: connection.target };
+            setGraph({ edges: [...graph.edges, newEdge] });
+            setRfEdges((eds) =>
+                rfAddEdge(
+                    {
+                        id,
+                        source: connection.source,
+                        target: connection.target,
+                        type: "historyEdge",
+                        data: { onDelete: deleteEdge },
+                        markerEnd: { type: MarkerType.ArrowClosed, color: C.lineStrong },
+                        style: { stroke: C.lineStrong, strokeWidth: 2 },
+                    },
+                    eds
+                )
+            );
+            setSelectedId(id);
+        },
+        [graph.nodes, graph.edges, setGraph, setRfEdges]
+    );
+
+    // Connection validation
+    const isValidConnection = useCallback(
+        (connection: Edge | Connection): boolean => {
+            if (!connection.source || !connection.target) return false;
+            if (connection.source === connection.target) return false;
+            const src = graph.nodes.find((n) => n.id === connection.source);
+            const tgt = graph.nodes.find((n) => n.id === connection.target);
+            if (!src || !tgt) return false;
+            if (src.data.category !== tgt.data.category) return false;
+            if (graph.edges.some((e) => e.source === connection.source && e.target === connection.target)) return false;
+            return true;
+        },
+        [graph.nodes, graph.edges]
+    );
 
     const addNode = () => {
         const id = uid();
@@ -50,11 +186,22 @@ export default function StepHistory({ data, update }: StepProps) {
             data: { category: activeCat, question: "", answer: "" },
         };
         setGraph({ nodes: [...graph.nodes, n] });
+        setRfNodes((nds) => [
+            ...nds,
+            {
+                id: n.id,
+                type: "historyNode",
+                position: { x: n.x, y: n.y },
+                data: { ...n.data },
+                selected: true,
+            },
+        ]);
         setSelectedId(id);
     };
 
     const updateNodeData = (id: string, patch: Partial<HistoryNode["data"]>) => {
         setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)) });
+        setRfNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
     };
 
     const deleteNode = (id: string) => {
@@ -62,84 +209,27 @@ export default function StepHistory({ data, update }: StepProps) {
             nodes: graph.nodes.filter((n) => n.id !== id),
             edges: graph.edges.filter((e) => e.source !== id && e.target !== id),
         });
+        setRfNodes((nds) => nds.filter((n) => n.id !== id));
+        setRfEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
         setSelectedId(null);
-    };
-
-    const addEdge = (source: string, target: string) => {
-        if (source === target) return;
-        if (graph.edges.some((e) => e.source === source && e.target === target)) return;
-        const src = graph.nodes.find((n) => n.id === source);
-        const tgt = graph.nodes.find((n) => n.id === target);
-        if (!src || !tgt) return;
-        if (src.data.category !== tgt.data.category) return;
-        const id = uid();
-        setGraph({ edges: [...graph.edges, { id, source, target }] });
     };
 
     const deleteEdge = (id: string) => {
         setGraph({ edges: graph.edges.filter((e) => e.id !== id) });
+        setRfEdges((eds) => eds.filter((e) => e.id !== id));
         setSelectedId(null);
-    };
-
-    const onMouseDownHeader = (e: React.MouseEvent<HTMLDivElement>, node: HistoryNode) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setSelectedId(node.id);
-        const start = canvasPoint(e.clientX, e.clientY);
-        const offset = { x: start.x - node.x, y: start.y - node.y };
-        const onMove = (ev: MouseEvent) => {
-            const p = canvasPoint(ev.clientX, ev.clientY);
-            setGraph({
-                nodes: graph.nodes.map((n) => (n.id === node.id ? { ...n, x: Math.max(0, p.x - offset.x), y: Math.max(0, p.y - offset.y) } : n)),
-            });
-        };
-        const onUp = () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-    };
-
-    const onStartConnect = (e: React.MouseEvent<HTMLDivElement>, sourceId: string) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const source = graph.nodes.find((n) => n.id === sourceId);
-        if (!source) return;
-        const x1 = source.x + NODE_W, y1 = source.y + NODE_H / 2;
-        const onMove = (ev: MouseEvent) => {
-            const p = canvasPoint(ev.clientX, ev.clientY);
-            setConnectLine({ x1, y1, x2: p.x, y2: p.y });
-        };
-        const onUp = (ev: MouseEvent) => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-            const el = document.elementFromPoint(ev.clientX, ev.clientY);
-            const targetId = el && el.getAttribute && el.getAttribute("data-port-in");
-            if (targetId) addEdge(sourceId, targetId);
-            setConnectLine(null);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
     };
 
     const selectedNode = selectedId ? graph.nodes.find((n) => n.id === selectedId) ?? null : null;
     const selectedEdge = selectedId && !selectedNode ? graph.edges.find((e) => e.id === selectedId) ?? null : null;
-
-    const catNodes = graph.nodes.filter((n) => n.data.category === activeCat);
-    const catEdges = graph.edges.filter((e) => {
-        const src = graph.nodes.find((n) => n.id === e.source);
-        const tgt = graph.nodes.find((n) => n.id === e.target);
-        return src && tgt && src.data.category === activeCat && tgt.data.category === activeCat;
-    });
     const showGraph = graph.nodes.length > 0;
 
     return (
         <div>
             <SectionHeading
-                eyebrow="02 · Elicit"
+                eyebrow="02 \u00b7 Elicit"
                 title="History taking"
-                desc="Build a graph of questions for each history category. Connect nodes of the same category. Players navigate the graph to discover the patient's history."
+                desc="Build a graph of questions for each history category. Connect nodes of the same category. Players navigate the graph to discover the patient\u2019s history."
             />
 
             {/* Category tabs + Add node */}
@@ -165,11 +255,7 @@ export default function StepHistory({ data, update }: StepProps) {
                     </button>
                 ))}
                 <div style={{ flex: 1 }} />
-                <span className="text-[11px] font-mono" style={{ color: C.inkFaint }}>{Math.round(scale * 100)}%</span>
-                <GhostButton onClick={() => setScale((s) => Math.max(0.25, s - 0.1))}>−</GhostButton>
-                <GhostButton onClick={() => setScale((s) => Math.min(3, s + 0.1))}>+</GhostButton>
-                <GhostButton onClick={() => setScale(1)}>Reset</GhostButton>
-                <PrimaryButton onClick={addNode} style={{ height: 37, marginLeft: 8 }}>
+                <PrimaryButton onClick={addNode} style={{ height: 37 }}>
                     + Add question
                 </PrimaryButton>
             </div>
@@ -177,218 +263,149 @@ export default function StepHistory({ data, update }: StepProps) {
             {!showGraph && (
                 <Card style={{ padding: 32, textAlign: "center" }}>
                     <div style={{ color: C.inkFaint, fontFamily: "'IBM Plex Sans'", fontSize: 14, marginBottom: 12 }}>
-                        No history questions yet. Click <strong>"+ Add question"</strong> to start building your history graph.
+                        No history questions yet. Click <strong>&quot;+ Add question&quot;</strong> to start building your history graph.
                     </div>
                     <PrimaryButton onClick={addNode}>+ Add question</PrimaryButton>
                 </Card>
             )}
 
             {showGraph && (
-                <div style={{ display: "flex", gap: 20 }}>
-                    {/* Canvas */}
-                    <div
-                        ref={canvasRef}
-                        style={{
-                            flex: 1,
-                            position: "relative",
-                            maxHeight: 480,
-                            background: C.paperDeep,
-                            border: `1px solid ${C.line}`,
-                            borderRadius: 10,
-                            overflow: "auto",
-                        }}
-                    >
-                        <div style={{ width: 2000 * scale, height: 2000 * scale, position: "relative" }}>
-                            <div style={{ width: 2000, height: 2000, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
-                                <svg width="2000" height="2000" viewBox="0 0 2000 2000" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1 }}>
-                                    {catEdges.map((e) => {
-                                        const src = graph.nodes.find((n) => n.id === e.source);
-                                        const tgt = graph.nodes.find((n) => n.id === e.target);
-                                        if (!src || !tgt) return null;
-                                        const x1 = src.x + NODE_W, y1 = src.y + NODE_H / 2;
-                                        const x2 = tgt.x, y2 = tgt.y + NODE_H / 2;
-                                        return (
-                                            <g key={e.id}>
-                                                <path d={edgePath(x1, y1, x2, y2)} fill="none" stroke={C.lineStrong} strokeWidth={2} />
-                                                <path
-                                                    d={edgePath(x1, y1, x2, y2)}
-                                                    fill="none"
-                                                    stroke="transparent"
-                                                    strokeWidth={16}
-                                                    style={{ cursor: "pointer", pointerEvents: "all" }}
-                                                    onClick={() => { setSelectedId(e.id); }}
-                                                />
-                                            </g>
-                                        );
-                                    })}
-                                    {connectLine && (
-                                        <path
-                                            d={edgePath(connectLine.x1, connectLine.y1, connectLine.x2, connectLine.y2)}
-                                            fill="none"
-                                            stroke={C.accent}
-                                            strokeWidth={2}
-                                            strokeDasharray="6 3"
-                                        />
-                                    )}
-                                </svg>
+                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                    <div style={{ flex: 1, height: "calc(100vh - 280px)", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+                        <ReactFlow
+                            nodes={rfNodes}
+                            edges={rfEdges}
+                            onNodesChange={onNodesChange}
+                            onEdgesChange={onEdgesChange}
+                            onConnect={onConnect}
+                            isValidConnection={isValidConnection}
+                            nodeTypes={nodeTypes}
+                            edgeTypes={edgeTypes}
+                            fitView
+                            minZoom={0.3}
+                            maxZoom={3}
+                            onPaneClick={() => setSelectedId(null)}
+                            deleteKeyCode={["Backspace", "Delete"]}
+                            snapToGrid
+                            snapGrid={[10, 10]}
+                        >
+                            <Background gap={20} size={1} color={C.line} />
+                            <Controls showInteractive={false} />
+                        </ReactFlow>
+                    </div>
+                </div>
+            )}
 
-                                <div style={{ position: "relative", zIndex: 2, pointerEvents: "none" }}>
-                                    {catNodes.map((node) => {
-                                        const cat = catDef(node.data.category);
-                                        const sel = selectedId === node.id;
-                                        return (
-                                            <div
-                                                key={node.id}
-                                                onMouseDown={(e) => onMouseDownHeader(e, node)}
-                                                style={{
-                                                    position: "absolute",
-                                                    left: node.x,
-                                                    top: node.y,
-                                                    width: NODE_W,
-                                                    minHeight: NODE_H,
-                                                    background: C.surface,
-                                                    border: `2px solid ${sel ? C.ink : cat.color}`,
-                                                    borderRadius: 9,
-                                                    boxShadow: sel ? "0 3px 10px rgba(27,36,48,0.18)" : "0 1px 4px rgba(27,36,48,0.08)",
-                                                    cursor: "grab",
-                                                    pointerEvents: "auto",
-                                                }}
-                                            >
-                                                <div
-                                                    style={{
-                                                        padding: "5px 10px",
-                                                        background: cat.soft,
-                                                        borderRadius: "7px 7px 0 0",
-                                                        fontSize: 10.5,
-                                                        fontFamily: "'IBM Plex Mono'",
-                                                        fontWeight: 700,
-                                                        color: cat.color,
-                                                        letterSpacing: 0.5,
-                                                        textTransform: "uppercase",
-                                                    }}
-                                                >
-                                                    {cat.label}
-                                                </div>
-                                                <div style={{ padding: "8px 10px" }}>
-                                                    {node.data.question ? (
-                                                        <div style={{ fontSize: 13, fontFamily: "'IBM Plex Sans'", color: C.ink, fontWeight: 500, lineHeight: 1.3 }}>
-                                                            {node.data.question.length > 60 ? node.data.question.slice(0, 60) + "…" : node.data.question}
-                                                        </div>
-                                                    ) : (
-                                                        <div style={{ fontSize: 12, fontFamily: "'IBM Plex Sans'", color: C.inkFaint, fontStyle: "italic" }}>
-                                                            No question set
-                                                        </div>
-                                                    )}
-                                                    {node.data.answer && (
-                                                        <div style={{ fontSize: 11.5, fontFamily: "'IBM Plex Sans'", color: C.inkSoft, marginTop: 4, lineHeight: 1.3 }}>
-                                                            {node.data.answer.length > 80 ? node.data.answer.slice(0, 80) + "…" : node.data.answer}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div
-                                                    data-port-in={node.id}
-                                                    style={{
-                                                        position: "absolute",
-                                                        left: -8,
-                                                        top: NODE_H / 2 - 7,
-                                                        width: 14,
-                                                        height: 14,
-                                                        background: C.surface,
-                                                        border: `2px solid ${cat.color}`,
-                                                        borderRadius: "50%",
-                                                        pointerEvents: "auto",
-                                                    }}
-                                                />
-                                                <div
-                                                    onMouseDown={(e) => onStartConnect(e, node.id)}
-                                                    style={{
-                                                        position: "absolute",
-                                                        right: -8,
-                                                        top: NODE_H / 2 - 7,
-                                                        width: 14,
-                                                        height: 14,
-                                                        background: cat.color,
-                                                        border: `2px solid ${C.surface}`,
-                                                        borderRadius: "50%",
-                                                        cursor: "crosshair",
-                                                        pointerEvents: "auto",
-                                                    }}
-                                                />
-                                            </div>
-                                        );
-                                    })}
+            {/* Inspector panel — fixed right side */}
+            {(selectedNode || selectedEdge) && (
+                <div style={{
+                    position: "fixed",
+                    right: 0,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    zIndex: 100,
+                    width: 320,
+                    maxHeight: "calc(100vh - 60px)",
+                    overflowY: "auto",
+                    background: C.surface,
+                    border: `1px solid ${C.line}`,
+                    borderRadius: 10,
+                    //boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                    padding: 16,
+                }}>
+                    <div style={{ position: "absolute", top: 16, right: 16, display: "flex", gap: 8 }}>
+                        {selectedNode && (
+                            <button
+                                onClick={() => deleteNode(selectedNode.id)}
+                                style={{
+                                    border: "none",
+                                    background: "none",
+                                    cursor: "pointer",
+                                    padding: 2,
+                                    color: C.critical,
+                                    display: "flex",
+                                }}
+                                aria-label="Delete question"
+                            >
+                                <Trash2 size={14} />
+                            </button>
+                        )}
+                        {selectedEdge && (
+                            <button
+                                onClick={() => deleteEdge(selectedEdge.id)}
+                                style={{
+                                    border: "none",
+                                    background: "none",
+                                    cursor: "pointer",
+                                    padding: 2,
+                                    color: C.critical,
+                                    display: "flex",
+                                }}
+                                aria-label="Remove edge"
+                            >
+                                <Trash2 size={14} />
+                            </button>
+                        )}
+                    </div>
+
+                    {selectedNode && (
+                        <div>
+                            <div style={{ marginBottom: 16, paddingRight: 40 }}>
+                                <span style={{ fontFamily: "'IBM Plex Sans'", fontWeight: 600, fontSize: 12, color: C.ink }}>Edit question</span>
+                            </div>
+
+                            <Field label="Question">
+                                <TextInput
+                                    value={selectedNode.data.question}
+                                    onChange={(e) => updateNodeData(selectedNode.id, { question: e.target.value })}
+                                    placeholder="e.g. Do you have any chronic medical conditions?"
+                                    style={{ fontSize: 12.5, padding: "6px 10px" }}
+                                />
+                            </Field>
+                            <Field label="Answer">
+                                <TextArea
+                                    value={selectedNode.data.answer}
+                                    onChange={(e) => updateNodeData(selectedNode.id, { answer: e.target.value })}
+                                    placeholder="e.g. Yes, I have hypertension and type 2 diabetes."
+                                    style={{ fontSize: 12.5, padding: "6px 10px", minHeight: 60 }}
+                                />
+                            </Field>
+                        </div>
+                    )}
+                    {selectedEdge && (
+                        <div>
+                            <div style={{ marginBottom: 16, paddingRight: 40 }}>
+                                <span style={{ fontFamily: "'IBM Plex Sans'", fontWeight: 600, fontSize: 12, color: C.ink }}>Edge</span>
+                            </div>
+                            <div style={{ fontSize: 11.5, color: C.inkSoft, fontFamily: "'IBM Plex Sans'" }}>
+                                <div style={{ marginBottom: 8 }}>
+                                    From: <strong>{graph.nodes.find((n) => n.id === selectedEdge.source)?.data.question || "?"}</strong>
+                                </div>
+                                <div>
+                                    To: <strong>{graph.nodes.find((n) => n.id === selectedEdge.target)?.data.question || "?"}</strong>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Edit panel */}
-                    <div style={{ width: 320, flexShrink: 0 }}>
-                        {selectedNode && (
-                            <Card>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                                    <span style={{ fontFamily: "'IBM Plex Sans'", fontWeight: 600, fontSize: 13.5, color: C.ink }}>Edit question</span>
-                                    <GhostButton danger onClick={() => deleteNode(selectedNode.id)}>Delete</GhostButton>
-                                </div>
-                                <Field label="Category">
-                                    <select
-                                        value={selectedNode.data.category}
-                                        onChange={(e) => updateNodeData(selectedNode.id, { category: e.target.value as HistoryCategoryType })}
-                                        style={inputStyle}
-                                    >
-                                        {HISTORY_CATEGORIES.map((cat) => (
-                                            <option key={cat.key} value={cat.key}>{cat.label}</option>
-                                        ))}
-                                    </select>
-                                </Field>
-                                <Field label="Question">
-                                    <TextInput
-                                        value={selectedNode.data.question}
-                                        onChange={(e) => updateNodeData(selectedNode.id, { question: e.target.value })}
-                                        placeholder="e.g. Do you have any chronic medical conditions?"
-                                    />
-                                </Field>
-                                <Field label="Answer">
-                                    <TextArea
-                                        value={selectedNode.data.answer}
-                                        onChange={(e) => updateNodeData(selectedNode.id, { answer: e.target.value })}
-                                        placeholder="e.g. Yes, I have hypertension and type 2 diabetes."
-                                        style={{ minHeight: 80 }}
-                                    />
-                                </Field>
-                            </Card>
-                        )}
-                        {selectedEdge && (
-                            <Card>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                                    <span style={{ fontFamily: "'IBM Plex Sans'", fontWeight: 600, fontSize: 13.5, color: C.ink }}>Edge</span>
-                                    <GhostButton danger onClick={() => deleteEdge(selectedEdge.id)}>Remove</GhostButton>
-                                </div>
-                                <div style={{ fontSize: 12.5, color: C.inkSoft, fontFamily: "'IBM Plex Sans'" }}>
-                                    <div style={{ marginBottom: 6 }}>
-                                        From: <strong>{graph.nodes.find((n) => n.id === selectedEdge.source)?.data.question || "?"}</strong>
-                                    </div>
-                                    <div>
-                                        To: <strong>{graph.nodes.find((n) => n.id === selectedEdge.target)?.data.question || "?"}</strong>
-                                    </div>
-                                </div>
-                            </Card>
-                        )}
-                        {!selectedNode && !selectedEdge && (
-                            <Card>
-                                <div style={{ fontSize: 13, color: C.inkFaint, fontFamily: "'IBM Plex Sans'", fontStyle: "italic" }}>
-                                    Click a node or edge to edit it.
-                                </div>
-                                <div style={{ fontSize: 12, color: C.inkFaint, fontFamily: "'IBM Plex Sans'", marginTop: 12, lineHeight: 1.6 }}>
-                                    <strong>Tips:</strong>
-                                    <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
-                                        <li>Drag the right circle to connect nodes</li>
-                                        <li>Only same-category nodes can be connected</li>
-                                        <li>Click a connection line to edit or remove it</li>
-                                    </ul>
-                                </div>
-                            </Card>
-                        )}
+                    <div style={{ marginTop: 16 }}>
+                        <button
+                            onClick={() => setSelectedId(null)}
+                            style={{
+                                width: "100%",
+                                border: "none",
+                                borderRadius: 6,
+                                padding: "8px 16px",
+                                background: C.accent,
+                                color: "#fff",
+                                fontFamily: "'IBM Plex Sans'",
+                                fontWeight: 600,
+                                fontSize: 12.5,
+                                cursor: "pointer",
+                            }}
+                        >
+                            Save
+                        </button>
                     </div>
                 </div>
             )}

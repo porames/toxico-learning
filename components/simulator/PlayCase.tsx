@@ -34,6 +34,7 @@ const TABS: { key: ActionTab; label: string; icon: typeof Heart }[] = [
 
 const GAME_DURATION_MINUTES = 30;
 const TOTAL_GAME_SECONDS = GAME_DURATION_MINUTES * 60;
+const HISTORY_TIMEOUT_PENALTY = 5;
 
 /* ------------------------------------------------------------------ */
 /*  Main PlayCase component                                            */
@@ -75,6 +76,11 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const recordEvent = useCallback((event: PlayerEvent) => {
         setPlayerEvents((prev) => [...prev, event]);
     }, []);
+
+    const handleHistoryTimeout = useCallback(() => {
+        setHealth((h) => Math.max(0, h - HISTORY_TIMEOUT_PENALTY));
+        recordEvent({ kind: "timer_expired", timestamp: elapsedRef.current });
+    }, [recordEvent]);
 
     // Timer
     useEffect(() => {
@@ -367,7 +373,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     // Loading
     if (loading) {
         return (
-            <div className="flex items-center justify-center gap-2 bg-canvas font-sans text-ink-500 text-sm" style={{ height: "calc(100vh - 48px)" }}>
+            <div className="flex items-center justify-center gap-2 bg-canvas font-sans text-ink-500 text-sm h-full">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-iris-600 animate-spin">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
                 </svg>
@@ -378,7 +384,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
 
     if (error || !caseData) {
         return (
-            <div className="flex items-center justify-center bg-canvas font-sans" style={{ height: "calc(100vh - 48px)" }}>
+            <div className="flex items-center justify-center bg-canvas font-sans h-full">
                 <div className="text-center">
                     <AlertTriangle size={32} className="text-ink-400 mx-auto mb-3" />
                     <p className="text-sm text-ink-500">{error || "Could not load case."}</p>
@@ -390,7 +396,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     // Start screen
     if (!gameStarted) {
         return (
-            <div className="bg-canvas font-sans flex items-center justify-center" style={{ height: "calc(100vh - 48px)" }}>
+            <div className="bg-canvas font-sans flex items-center justify-center h-full">
                 <div className="max-w-md text-center">
                     <Heart size={48} className="text-iris-600 mx-auto mb-4" />
                     <h1 className="text-2xl font-semibold text-ink-900 mb-1">{caseData.title || "Untitled case"}</h1>
@@ -411,7 +417,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
     const gameTimeUp = gameOver || (minutes === 0 && seconds === 0);
 
     return (
-        <div className="fixed inset-x-0 top-12 bottom-0 bg-canvas font-sans">
+        <div className="relative h-full bg-canvas font-sans">
             {/* Full-screen 3D scene */}
             <div className="absolute inset-0">
                 <GameCanvas
@@ -425,7 +431,7 @@ export default function PlayCase({ caseId }: { caseId: string }) {
             </div>
 
             {/* Elapsed timer + health bar — always visible */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[55] flex items-center gap-3">
                 <span className="inline-flex items-center gap-1.5 text-sm font-mono font-semibold text-white bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg">
                     <Clock size={14} />
                     {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
@@ -467,14 +473,16 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                                     ev.kind === "test_ordered" ? <FlaskConical size={12} /> :
                                         ev.kind === "intervention_applied" ? <Syringe size={12} /> :
                                             ev.kind === "outcome" ? <AlertTriangle size={12} /> :
-                                                ev.kind === "game_over" ? <Clock size={12} /> : null;
+                                                ev.kind === "timer_expired" ? <Clock size={12} /> :
+                                                    ev.kind === "game_over" ? <Clock size={12} /> : null;
                         const label = ev.kind === "game_start" ? "Game started" :
                             ev.kind === "vitals_requested" ? "Vitals requested" :
                                 ev.kind === "exam_performed" ? `Exam: ${ev.system}` :
                                     ev.kind === "test_ordered" ? `Test: ${ev.name}` :
                                         ev.kind === "intervention_applied" ? `Rx: ${ev.name}` :
                                             ev.kind === "outcome" ? `Outcome: ${ev.outcomeType}` :
-                                                ev.kind === "game_over" ? "Time's up!" : ev.kind;
+                                                ev.kind === "timer_expired" ? "Hesitated — patient worsened" :
+                                                    ev.kind === "game_over" ? "Time's up!" : ev.kind;
                         const outcomeBg: Record<string, string> = {
                             improved: "bg-emerald-100",
                             deteriorated: "bg-rose-100",
@@ -499,17 +507,6 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                         vitals={resolvedVitals}
                         requested={vitalsRequested}
                         onRequest={requestVitals}
-                    />
-                )}
-                {activeTab === "history" && (
-                    <HistoryPanel
-                        historyGraph={caseData.historyGraph ?? { nodes: [], edges: [] }}
-                        askedQuestions={askedQuestions}
-                        onAskQuestion={(questionId) => {
-                            setAskedQuestions((prev) => new Set([...Array.from(prev), questionId]));
-                            const node = (caseData.historyGraph?.nodes ?? []).find((n) => n.id === questionId);
-                            recordEvent({ kind: "history_question", timestamp: elapsed, questionId, questionText: node?.data.question ?? "" });
-                        }}
                     />
                 )}
                 {activeTab === "exam" && (
@@ -543,6 +540,20 @@ export default function PlayCase({ caseId }: { caseId: string }) {
                     />
                 )}
             </div>
+            {/* Fullscreen history interview modal */}
+            {activeTab === "history" && !gameTimeUp && (
+                <HistoryPanel
+                    historyGraph={caseData.historyGraph ?? { nodes: [], edges: [] }}
+                    askedQuestions={askedQuestions}
+                    onAskQuestion={(questionId) => {
+                        setAskedQuestions((prev) => new Set([...Array.from(prev), questionId]));
+                        const node = (caseData.historyGraph?.nodes ?? []).find((n) => n.id === questionId);
+                        recordEvent({ kind: "history_question", timestamp: elapsed, questionId, questionText: node?.data.question ?? "" });
+                    }}
+                    onTimeout={handleHistoryTimeout}
+                    onClose={() => setActiveTab("vitals")}
+                />
+            )}
             {/* Game over modal */}
             {(() => {
                 if (!gameOverReason) return null;

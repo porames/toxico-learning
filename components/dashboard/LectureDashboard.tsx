@@ -318,7 +318,7 @@ export default function LectureDashboard() {
           </button>
           {selectedClass && (
             <>
-              <span className="hidden md:inline text-ink-900/20 shrink-0">/</span>
+              <ChevronRight size={14} className="hidden md:inline text-ink-900/20 shrink-0" />
               <button
                 type="button"
                 onClick={() => setSelection({ level: "class", classId: selectedClass.id })}
@@ -330,7 +330,7 @@ export default function LectureDashboard() {
           )}
           {selectedLecture && (
             <>
-              <span className="hidden md:inline text-ink-900/20 shrink-0">/</span>
+              <ChevronRight size={14} className="hidden md:inline text-ink-900/20 shrink-0" />
               <span className="hidden md:block truncate text-sm font-medium text-ink-900">{selectedLecture.title}</span>
             </>
           )}

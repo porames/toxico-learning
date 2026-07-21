@@ -1,25 +1,47 @@
 "use client"
 
-import React, { useState, useRef } from "react";
+import React, { useState, useCallback, useEffect, memo } from "react";
+import {
+    ReactFlow,
+    Background,
+    Controls,
+    useNodesState,
+    useEdgesState,
+    BaseEdge,
+    getBezierPath,
+    EdgeLabelRenderer,
+    EdgeToolbar,
+    addEdge as rfAddEdge,
+    MarkerType,
+    useReactFlow,
+    type Node,
+    type Edge,
+    type Connection,
+    type OnNodesChange,
+    type OnEdgesChange,
+    type OnConnect,
+    type EdgeProps,
+    type ReactFlowInstance,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import type {
     CaseData, ManagementNode, ManagementEdge, ManagementGraph,
-    SelectionKind, ConnectLine, GraphNodeProps,
     StepProps,
 } from "./types";
 import {
-    C, MANAGEMENT_LIBRARY, MEDICATION_DOSES, OUTCOME_TYPES, VITAL_DEFS, NODE_SIZE, NODE_META,
+    C, MANAGEMENT_LIBRARY, MEDICATION_DOSES, OUTCOME_TYPES, VITAL_DEFS, NODE_SIZE,
 } from "./database";
 import {
     inputStyle, TextInput, TextArea, Field, GhostButton, Chip, Card, SectionHeading,
 } from "./ui";
+import { Trash2 } from "lucide-react";
+import ManagementNodeComponent from "./ManagementNode";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 function defaultNodeData(type: string) {
     if (type === "timer") return { minutes: 10, note: "no critical action taken" };
-    if (type === "intervention") {
-        return { actions: [] };
-    }
+    if (type === "intervention") return { actions: [] };
     if (type === "required") {
         const first = MANAGEMENT_LIBRARY[Object.keys(MANAGEMENT_LIBRARY)[0]][0];
         return { actions: [{ or: [first] }] };
@@ -35,175 +57,237 @@ function defaultNodeData(type: string) {
     return {};
 }
 
-function edgePath(x1: number, y1: number, x2: number, y2: number) {
-    const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
-    return `M ${x1},${y1} C ${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
-}
+const nodeTypes = {
+    managementNode: ManagementNodeComponent,
+};
 
-function GraphNode({ node, selected, onMouseDownHeader, onStartConnect }: GraphNodeProps) {
-    const size = NODE_SIZE[node.type];
-    const isOutcome = node.type === "outcome";
-    const outcomeDef = isOutcome ? OUTCOME_TYPES.find((o) => o.key === node.data.outcomeType) : null;
-    const meta = isOutcome && outcomeDef ? { label: outcomeDef.label, color: outcomeDef.color, soft: outcomeDef.soft } : (NODE_META[node.type] ?? { label: "?", color: "#888", soft: "#eee" });
+function ManagementEdge({
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    selected,
+    data,
+    markerEnd,
+    style,
+}: EdgeProps) {
+    const [edgePath, labelX, labelY] = getBezierPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+    });
+    const label = (data as Record<string, unknown>)?.label as string | undefined;
 
     return (
-        <div
-            onMouseDown={(e) => onMouseDownHeader(e, node)}
-            className="absolute select-none"
-            style={{
-                left: node.x,
-                top: node.y,
-                width: size.w,
-                minHeight: size.h,
-                background: C.surface,
-                border: `2px solid ${selected ? C.ink : meta.color}`,
-                borderRadius: 9,
-                boxShadow: selected ? "0 3px 10px rgba(27,36,48,0.18)" : "0 1px 4px rgba(27,36,48,0.08)",
-                cursor: "grab",
-            }}
-        >
-            <div
-                className="flex items-center justify-between px-2.5 py-1.5 rounded-t-[7px]"
-                style={{ background: meta.soft }}
-            >
-                <span className="text-[10.5px] font-mono font-bold tracking-wide uppercase" style={{ color: meta.color }}>
-                    {node.type === "outcome" ? "Outcome" : meta.label}
-                </span>
-            </div>
-            <div className="px-2.5 py-2">
-                {node.type === "start" && <span className="text-sm font-sans" style={{ color: C.inkSoft }}>Case begins</span>}
-                {node.type === "timer" && (
-                    <>
-                        <div className="text-xl font-mono font-bold" style={{ color: C.blue }}>{node.data.minutes || 0}<span className="text-xs"> min</span></div>
-                        <div className="text-[11.5px] font-sans mt-0.5" style={{ color: C.inkSoft }}>{node.data.note || "—"}</div>
-                    </>
-                )}
-                {node.type === "intervention" && (
-                    <div className="flex flex-col gap-1">
-                        {(node.data.actions ?? []).map((a: string) => {
-                            const dose = node.data.doseMap?.[a];
-                            return (
-                                <div key={a} className="text-[13px] font-sans" style={{ color: C.ink }}>
-                                    · {a}{dose ? <span style={{ color: C.accent }}> — {dose}</span> : ""}
-                                </div>
-                            );
-                        })}
+        <>
+            <BaseEdge
+                id={id}
+                path={edgePath}
+                style={{
+                    ...(style as React.CSSProperties),
+                    stroke: selected ? C.ink : C.inkSoft,
+                    strokeWidth: selected ? 2.5 : 1.6,
+                    cursor: "pointer",
+                }}
+                markerEnd={markerEnd}
+            />
+            {label && (
+                <EdgeLabelRenderer>
+                    <div
+                        style={{
+                            position: "absolute",
+                            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - 6}px)`,
+                            fontSize: 10.5,
+                            fontFamily: "'IBM Plex Mono'",
+                            color: C.inkSoft,
+                            pointerEvents: "none",
+                            lineHeight: 1,
+                        }}
+                    >
+                        {label}
                     </div>
-                )}
-                {node.type === "required" && (
-                    <>
-                        <div className="text-[11px] font-mono font-semibold" style={{ color: meta.color }}>Required:</div>
-                        <div className="text-[12px] font-sans mt-0.5 leading-snug" style={{ color: C.ink }}>
-                            {(node.data.actions ?? []).map((group, gi) => (
-                                <span key={gi}>
-                                    {gi > 0 && <span className="text-[10px] font-mono mx-0.5" style={{ color: C.inkFaint }}>AND</span>}
-                                    <span>({(group.or ?? []).map((a: string) => {
-                                        const dose = node.data.doseMap?.[a];
-                                        return dose ? `${a} → ${dose}` : a;
-                                    }).join(" OR ")})</span>
-                                </span>
-                            )) || "—"}
-                        </div>
-                    </>
-                )}
-                {node.type === "outcome" && outcomeDef && outcomeDef.key === "unlockEvent" && node.data.outcomeType === "unlockEvent" && (
-                    <>
-                        <Chip color={outcomeDef.color} soft={outcomeDef.soft}>{outcomeDef.label}</Chip>
-                        {node.data.unlockedDispositions.length > 0 ? (
-                            <div className="text-[11.5px] font-sans mt-1 leading-snug" style={{ color: C.inkSoft }}>
-                                Unlocks: {node.data.unlockedDispositions.join(", ")}
-                            </div>
-                        ) : (
-                            <div className="text-[11.5px] font-sans mt-1 italic" style={{ color: C.inkFaint }}>
-                                No dispositions selected
-                            </div>
-                        )}
-                    </>
-                )}
-                {node.type === "outcome" && outcomeDef && outcomeDef.key !== "unlockEvent" && node.data.outcomeType !== "unlockEvent" && (
-                    <>
-                        <Chip color={outcomeDef.color} soft={outcomeDef.soft}>{outcomeDef.label}</Chip>
-                        <div className="text-[11.5px] font-sans mt-1.5 leading-snug" style={{ color: C.inkSoft }}>
-                            {node.data.narrative ? (node.data.narrative.length > 70 ? node.data.narrative.slice(0, 70) + "…" : node.data.narrative) : "No narrative yet"}
-                        </div>
-                    </>
-                )}
-                {node.type === "end" && (
-                    <>
-                        <Chip color={node.data.outcome === "win" ? C.normal : C.critical} soft={node.data.outcome === "win" ? C.normalSoft : C.criticalSoft}>
-                            {node.data.outcome === "win" ? "WIN" : "LOSE"}
-                        </Chip>
-                        <div className="text-[13px] font-sans font-medium mt-1" style={{ color: C.ink }}>
-                            {node.data.narrative || "End simulation"}
-                        </div>
-                    </>
-                )}
-            </div>
-
-            {node.type !== "start" && (
-                <div
-                    data-port-in={node.id}
-                    title="Input"
-                    className="absolute rounded-full"
-                    style={{
-                        left: -8,
-                        top: size.h / 2 - 7,
-                        width: 14,
-                        height: 14,
-                        background: C.surface,
-                        border: `2px solid ${meta.color}`,
-                    }}
-                />
+                </EdgeLabelRenderer>
             )}
-            {node.type !== "end" && (
-                <div
-                    onMouseDown={(e) => onStartConnect(e, node.id)}
-                    title="Drag to connect"
-                    className="absolute rounded-full"
-                    style={{
-                        right: -8,
-                        top: size.h / 2 - 7,
-                        width: 14,
-                        height: 14,
-                        background: meta.color,
-                        border: `2px solid ${C.surface}`,
-                        cursor: "crosshair",
-                    }}
-                />
+            {selected && (
+                <EdgeToolbar edgeId={id} x={labelX} y={labelY} isVisible>
+                    <button
+                        onClick={() => (data as any).onDelete(id)}
+                        style={{
+                            border: "none",
+                            background: C.surface,
+                            cursor: "pointer",
+                            width: 24,
+                            height: 24,
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                            color: C.critical,
+                        }}
+                    >
+                        <Trash2 size={12} />
+                    </button>
+                </EdgeToolbar>
             )}
-        </div>
+        </>
     );
 }
 
+const edgeTypes = {
+    managementEdge: memo(ManagementEdge),
+};
+
 export default function StepManagement({ data, update }: StepProps) {
     const graph = data.managementGraph;
-    const canvasRef = useRef<HTMLDivElement>(null);
-    const [selected, setSelected] = useState<SelectionKind>(null);
-    const [connectLine, setConnectLine] = useState<ConnectLine | null>(null);
-    const [scale, setScale] = useState(1);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
     const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+    const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+    const [zoomLevel, setZoomLevel] = useState(1);
 
     const toggleCat = (cat: string) => setExpandedCats((prev) => ({ ...prev, [cat]: !prev[cat] }));
 
     const setGraph = (patch: Partial<ManagementGraph>) => update({ managementGraph: { ...graph, ...patch } });
 
-    const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } => {
-        const el = canvasRef.current!;
-        const rect = el.getBoundingClientRect();
-        return { x: (clientX - rect.left + el.scrollLeft) / scale, y: (clientY - rect.top + el.scrollTop) / scale };
-    };
+    const [rfNodes, setRfNodes, onNodesChangeBase] = useNodesState<Node>([]);
+    const [rfEdges, setRfEdges, onEdgesChangeBase] = useEdgesState<Edge>([]);
+
+    useEffect(() => {
+        setRfNodes(
+            graph.nodes.map((n) => ({
+                id: n.id,
+                type: "managementNode",
+                position: { x: n.x, y: n.y },
+                data: { node: n },
+                selected: n.id === selectedId,
+            }))
+        );
+        setRfEdges(
+            graph.edges.map((e) => ({
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                type: "managementEdge",
+                data: { label: e.label, onDelete: deleteEdge },
+                markerEnd: { type: MarkerType.ArrowClosed, color: C.inkSoft },
+                style: { stroke: C.inkSoft, strokeWidth: 1.6 },
+                selected: e.id === selectedId,
+            }))
+        );
+    }, [graph.nodes, graph.edges, selectedId, setRfNodes, setRfEdges]);
+
+    const onNodesChange: OnNodesChange = useCallback(
+        (changes) => {
+            onNodesChangeBase(changes);
+            for (const ch of changes) {
+                if (ch.type === "position" && !ch.dragging && ch.position) {
+                    setGraph({
+                        nodes: graph.nodes.map((n) =>
+                            n.id === ch.id
+                                ? { ...n, x: Math.max(0, ch.position!.x), y: Math.max(0, ch.position!.y) }
+                                : n
+                        ),
+                    });
+                }
+                if (ch.type === "select") {
+                    setSelectedId(ch.selected ? ch.id : null);
+                }
+            }
+        },
+        [graph.nodes, setGraph, onNodesChangeBase]
+    );
+
+    const onEdgesChange: OnEdgesChange = useCallback(
+        (changes) => {
+            onEdgesChangeBase(changes);
+            for (const ch of changes) {
+                if (ch.type === "remove") {
+                    setGraph({
+                        edges: graph.edges.filter((e) => e.id !== ch.id),
+                    });
+                    setSelectedId((prev) => (prev === ch.id ? null : prev));
+                }
+                if (ch.type === "select") {
+                    setSelectedId(ch.selected ? ch.id : null);
+                }
+            }
+        },
+        [graph.edges, setGraph, onEdgesChangeBase]
+    );
+
+    const onConnect: OnConnect = useCallback(
+        (connection) => {
+            if (!connection.source || !connection.target) return;
+            if (connection.source === connection.target) return;
+            if (graph.edges.some((e) => e.source === connection.source && e.target === connection.target)) return;
+            const id = uid();
+            const newEdge: ManagementEdge = { id, source: connection.source, target: connection.target, label: "" };
+            setGraph({ edges: [...graph.edges, newEdge] });
+            setRfEdges((eds) =>
+                rfAddEdge(
+                    {
+                        id,
+                        source: connection.source,
+                        target: connection.target,
+                        type: "managementEdge",
+                        data: { label: "", onDelete: deleteEdge },
+                        markerEnd: { type: MarkerType.ArrowClosed, color: C.inkSoft },
+                        style: { stroke: C.inkSoft, strokeWidth: 1.6 },
+                    },
+                    eds
+                )
+            );
+            setSelectedId(id);
+        },
+        [graph.edges, setGraph, setRfEdges]
+    );
+
+    const isValidConnection = useCallback(
+        (connection: Edge | Connection): boolean => {
+            if (!connection.source || !connection.target) return false;
+            if (connection.source === connection.target) return false;
+            if (graph.edges.some((e) => e.source === connection.source && e.target === connection.target)) return false;
+            return true;
+        },
+        [graph.edges]
+    );
 
     const addNode = (type: "timer" | "intervention" | "required" | "outcome" | "end") => {
         const id = uid();
         const n = { id, type, x: 340 + Math.random() * 60, y: 80 + Math.random() * 360, data: defaultNodeData(type) } as ManagementNode;
         setGraph({ nodes: [...graph.nodes, n] });
-        setSelected({ kind: "node", id });
-        console.log(graph)
+        setRfNodes((nds) => [
+            ...nds,
+            {
+                id: n.id,
+                type: "managementNode",
+                position: { x: n.x, y: n.y },
+                data: { node: n },
+                selected: true,
+            },
+        ]);
+        setSelectedId(id);
     };
 
     const updateNodeData = (id: string, patch: Record<string, unknown>) => {
         const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
-        setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...clean } } : n)) as ManagementNode[] });
+        const nextNodes = graph.nodes.map((n) =>
+            n.id === id ? { ...n, data: { ...n.data, ...clean } } : n
+        ) as ManagementNode[];
+        setGraph({ nodes: nextNodes });
+        setRfNodes((nds) =>
+            nds.map((n) =>
+                n.id === id
+                    ? { ...n, data: { ...n.data, node: { ...(n.data as any).node, data: { ...(n.data as any).node.data, ...clean } } } }
+                    : n
+            )
+        );
     };
 
     const resetOutcomeData = (outcomeType: string) => {
@@ -224,82 +308,82 @@ export default function StepManagement({ data, update }: StepProps) {
                 x: 340 + Math.random() * 60, y: 80 + Math.random() * 360,
                 data: { outcome: "lose", narrative: "" },
             };
-            setGraph({
-                nodes: [
-                    ...graph.nodes.map((n) => (n.id === id ? { ...n, data: resetOutcomeData(outcomeType) } as ManagementNode : n)),
-                    endNode,
-                ],
-                edges: [...graph.edges, { id: uid(), source: id, target: endId, label: "" }],
-            });
+            const nextNodes = [
+                ...graph.nodes.map((n) => (n.id === id ? { ...n, data: resetOutcomeData(outcomeType) } as ManagementNode : n)),
+                endNode,
+            ];
+            const nextEdges = [...graph.edges, { id: uid(), source: id, target: endId, label: "" }];
+            setGraph({ nodes: nextNodes, edges: nextEdges });
+            setRfNodes((nds) => [
+                ...nds.map((n) =>
+                    n.id === id
+                        ? { ...n, data: { ...n.data, node: { ...(n.data as any).node, data: resetOutcomeData(outcomeType) } } }
+                        : n
+                ),
+                {
+                    id: endNode.id,
+                    type: "managementNode",
+                    position: { x: endNode.x, y: endNode.y },
+                    data: { node: endNode },
+                    selected: false,
+                },
+            ]);
+            setRfEdges((eds) =>
+                rfAddEdge(
+                    {
+                        id: uid(),
+                        source: id,
+                        target: endId,
+                        type: "managementEdge",
+                        data: { label: "", onDelete: deleteEdge },
+                        markerEnd: { type: MarkerType.ArrowClosed, color: C.inkSoft },
+                        style: { stroke: C.inkSoft, strokeWidth: 1.6 },
+                    },
+                    eds
+                )
+            );
         } else {
-            setGraph({ nodes: graph.nodes.map((n) => (n.id === id ? { ...n, data: resetOutcomeData(outcomeType) } as ManagementNode : n)) });
+            const nextNodes = graph.nodes.map((n) => (n.id === id ? { ...n, data: resetOutcomeData(outcomeType) } as ManagementNode : n));
+            setGraph({ nodes: nextNodes });
+            setRfNodes((nds) =>
+                nds.map((n) =>
+                    n.id === id
+                        ? { ...n, data: { ...n.data, node: { ...(n.data as any).node, data: resetOutcomeData(outcomeType) } } }
+                        : n
+                )
+            );
         }
     };
 
     const deleteNode = (id: string) => {
-        setGraph({ nodes: graph.nodes.filter((n) => n.id !== id), edges: graph.edges.filter((e) => e.source !== id && e.target !== id) });
-        setSelected(null);
+        setGraph({
+            nodes: graph.nodes.filter((n) => n.id !== id),
+            edges: graph.edges.filter((e) => e.source !== id && e.target !== id),
+        });
+        setRfNodes((nds) => nds.filter((n) => n.id !== id));
+        setRfEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+        setSelectedId(null);
     };
 
-    const addEdge = (source: string, target: string) => {
-        if (source === target) return;
-        if (graph.edges.some((e) => e.source === source && e.target === target)) return;
-        const id = uid();
-        setGraph({ edges: [...graph.edges, { id, source, target, label: "" }] });
-        setSelected({ kind: "edge", id });
+    const updateEdge = (id: string, patch: Partial<ManagementEdge>) => {
+        setGraph({ edges: graph.edges.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
+        setRfEdges((eds) =>
+            eds.map((e) =>
+                e.id === id
+                    ? { ...e, data: { ...e.data, label: patch.label ?? (e.data as any).label } }
+                    : e
+            )
+        );
     };
-    const updateEdge = (id: string, patch: Partial<ManagementEdge>) => setGraph({ edges: graph.edges.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
+
     const deleteEdge = (id: string) => {
         setGraph({ edges: graph.edges.filter((e) => e.id !== id) });
-        setSelected(null);
+        setRfEdges((eds) => eds.filter((e) => e.id !== id));
+        setSelectedId(null);
     };
 
-    const onMouseDownHeader = (e: React.MouseEvent<HTMLDivElement>, node: ManagementNode) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setSelected({ kind: "node", id: node.id });
-        const start = canvasPoint(e.clientX, e.clientY);
-        const offset = { x: start.x - node.x, y: start.y - node.y };
-        const onMove = (ev: MouseEvent) => {
-            const p = canvasPoint(ev.clientX, ev.clientY);
-            setGraph({
-                nodes: graph.nodes.map((n) => (n.id === node.id ? { ...n, x: Math.max(0, p.x - offset.x), y: Math.max(0, p.y - offset.y) } : n)),
-            });
-        };
-        const onUp = () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-    };
-
-    const onStartConnect = (e: React.MouseEvent<HTMLDivElement>, sourceId: string) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const source = graph.nodes.find((n) => n.id === sourceId);
-        if (!source) return;
-        const size = NODE_SIZE[source.type];
-        const x1 = source.x + size.w,
-            y1 = source.y + size.h / 2;
-        const onMove = (ev: MouseEvent) => {
-            const p = canvasPoint(ev.clientX, ev.clientY);
-            setConnectLine({ x1, y1, x2: p.x, y2: p.y });
-        };
-        const onUp = (ev: MouseEvent) => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-            const el = document.elementFromPoint(ev.clientX, ev.clientY);
-            const targetId = el && el.getAttribute && el.getAttribute("data-port-in");
-            if (targetId) addEdge(sourceId, targetId);
-            setConnectLine(null);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-    };
-
-    const selectedNode = selected && selected.kind === "node" ? graph.nodes.find((n) => n.id === selected.id) : null;
-    const selectedEdge = selected && selected.kind === "edge" ? graph.edges.find((e) => e.id === selected.id) : null;
+    const selectedNode = selectedId ? graph.nodes.find((n) => n.id === selectedId) ?? null : null;
+    const selectedEdge = selectedId && !selectedNode ? graph.edges.find((e) => e.id === selectedId) ?? null : null;
 
     return (
         <div>
@@ -316,17 +400,15 @@ export default function StepManagement({ data, update }: StepProps) {
                 <GhostButton onClick={() => addNode("outcome")}>+ Outcome node</GhostButton>
                 <GhostButton onClick={() => addNode("end")}>+ End node</GhostButton>
                 <div className="flex-1" />
-                <span className="text-[11px] font-mono" style={{ color: C.inkFaint }}>{Math.round(scale * 100)}%</span>
-                <GhostButton onClick={() => setScale((s) => Math.max(0.25, s - 0.1))}>−</GhostButton>
-                <GhostButton onClick={() => setScale((s) => Math.min(3, s + 0.1))}>+</GhostButton>
-                <GhostButton onClick={() => setScale(1)}>Reset</GhostButton>
+                <span className="text-[11px] font-mono" style={{ color: C.inkFaint }}>{Math.round(zoomLevel * 100)}%</span>
+                <GhostButton onClick={() => rfInstance?.zoomOut()}>−</GhostButton>
+                <GhostButton onClick={() => rfInstance?.zoomIn()}>+</GhostButton>
+                <GhostButton onClick={() => rfInstance?.fitView({ padding: 0.2 })}>Reset</GhostButton>
             </div>
 
             <div className="relative w-full">
                 <div
-                    ref={canvasRef}
-                    onMouseDown={(e) => { e.preventDefault(); setSelected(null); }}
-                    className="relative w-full overflow-auto select-none rounded-lg"
+                    className="relative w-full rounded-lg"
                     style={{
                         height: 560,
                         border: `1px solid ${C.lineStrong}`,
@@ -334,62 +416,32 @@ export default function StepManagement({ data, update }: StepProps) {
                             `radial-gradient(${C.lineStrong} 1px, transparent 1px) 0 0/18px 18px, #f5f0e6`,
                     }}
                 >
-                    <div style={{ width: 1500 * scale, height: 900 * scale, position: "relative" }}>
-                        <div style={{ width: 1500, height: 900, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
-                            <svg viewBox="0 0 1500 900" className="block absolute left-0 top-0 pointer-events-none" preserveAspectRatio="xMidYMid meet">
-                                <defs>
-                                    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                                        <path d="M0,0 L8,4 L0,8 Z" fill={C.inkSoft} />
-                                    </marker>
-                                </defs>
-                                {graph.edges.map((e) => {
-                                    const s = graph.nodes.find((n) => n.id === e.source);
-                                    const t = graph.nodes.find((n) => n.id === e.target);
-                                    if (!s || !t) return null;
-                                    const sSize = NODE_SIZE[s.type],
-                                        tSize = NODE_SIZE[t.type];
-                                    const x1 = s.x + sSize.w,
-                                        y1 = s.y + sSize.h / 2;
-                                    const x2 = t.x,
-                                        y2 = t.y + tSize.h / 2;
-                                    const isSel = selectedEdge && selectedEdge.id === e.id;
-                                    const midX = (x1 + x2) / 2,
-                                        midY = (y1 + y2) / 2;
-                                    return (
-                                        <g key={e.id}>
-                                            <path
-                                                d={edgePath(x1, y1, x2, y2)}
-                                                fill="none"
-                                                stroke={isSel ? C.ink : C.inkSoft}
-                                                strokeWidth={isSel ? 2.5 : 1.6}
-                                                markerEnd="url(#arrow)"
-                                                style={{ pointerEvents: "stroke", cursor: "pointer" }}
-                                                onMouseDown={(ev) => {
-                                                    ev.stopPropagation();
-                                                    setSelected({ kind: "edge", id: e.id });
-                                                }}
-                                            />
-                                            {e.label && (
-                                                <text x={midX} y={midY - 6} textAnchor="middle" fontFamily="'IBM Plex Mono'" fontSize="10.5" fill={C.inkSoft} style={{ pointerEvents: "none" }}>
-                                                    {e.label}
-                                                </text>
-                                            )}
-                                        </g>
-                                    );
-                                })}
-                                {connectLine && (
-                                    <path d={edgePath(connectLine.x1, connectLine.y1, connectLine.x2, connectLine.y2)} fill="none" stroke={C.accent} strokeWidth={2} strokeDasharray="5,4" />
-                                )}
-                            </svg>
-
-                            {graph.nodes.map((n) => (
-                                <GraphNode key={n.id} node={n} selected={selected?.id === n.id} onMouseDownHeader={onMouseDownHeader} onStartConnect={onStartConnect} />
-                            ))}
-                        </div>
-                    </div>
+                    <ReactFlow
+                        nodes={rfNodes}
+                        edges={rfEdges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={onConnect}
+                        isValidConnection={isValidConnection}
+                        nodeTypes={nodeTypes}
+                        edgeTypes={edgeTypes}
+                        onInit={setRfInstance}
+                        onViewportChange={(vp) => setZoomLevel(vp.zoom)}
+                        onPaneClick={() => setSelectedId(null)}
+                        deleteKeyCode={["Backspace", "Delete"]}
+                        snapToGrid
+                        snapGrid={[10, 10]}
+                        minZoom={0.25}
+                        maxZoom={3}
+                        fitView={false}
+                        style={{ width: "100%", height: "100%" }}
+                    >
+                        <Background gap={20} size={1} color={C.line} />
+                        <Controls showInteractive={false} />
+                    </ReactFlow>
                 </div>
 
-                <div className="fixed bottom-12 left-6" style={{ width: 300, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}>
+                <div className="fixed bottom-24 right-0" style={{ width: 300, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}>
                     <Card>
                         {!selectedNode && !selectedEdge && (
                             <div className="text-[13.5px] font-sans" style={{ color: C.inkFaint }}>
@@ -533,7 +585,7 @@ export default function StepManagement({ data, update }: StepProps) {
                                     Groups combine with <strong>AND</strong>. Alternatives within a group combine with <strong>OR</strong>.
                                 </div>
                                 <div className="space-y-2 mb-2">
-                                    {selectedNode.data.actions.map((group, gi) => {
+                                    {selectedNode.data.actions.map((group: any, gi: number) => {
                                         const groupOpen = expandedCats[`grp-${gi}`] ?? true;
                                         const groupSummary = (group.or ?? []).length > 0
                                             ? `${(group.or ?? []).length} intervention${(group.or ?? []).length > 1 ? "s" : ""}`
@@ -675,22 +727,22 @@ export default function StepManagement({ data, update }: StepProps) {
                         )}
 
                         {selectedNode && selectedNode.type === "outcome" && (() => {
-                            const data = selectedNode.data;
+                            const nd = selectedNode.data;
                             return (
                                 <>
                                     <div className="text-[11px] font-mono font-bold mb-2.5 uppercase" style={{ color: C.inkSoft }}>Outcome node</div>
                                     <Field label="Classification">
-                                        <select value={data.outcomeType} onChange={(e) => setOutcomeType(selectedNode.id, e.target.value)} style={inputStyle}>
+                                        <select value={nd.outcomeType} onChange={(e) => setOutcomeType(selectedNode.id, e.target.value)} style={inputStyle}>
                                             {OUTCOME_TYPES.map((o) => (
                                                 <option key={o.key} value={o.key}>{o.label}</option>
                                             ))}
                                         </select>
                                     </Field>
-                                    {data.outcomeType === "unlockEvent" ? (
+                                    {nd.outcomeType === "unlockEvent" ? (
                                         <div className="space-y-1.5 mb-2">
                                             <div className="text-[11px] font-mono font-semibold" style={{ color: C.inkFaint }}>Unlocked dispositions</div>
                                             {MANAGEMENT_LIBRARY["Disposition"].map((d) => {
-                                                const checked = data.unlockedDispositions.includes(d);
+                                                const checked = nd.unlockedDispositions.includes(d);
                                                 return (
                                                     <label key={d} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: C.ink }}>
                                                         <input
@@ -698,8 +750,8 @@ export default function StepManagement({ data, update }: StepProps) {
                                                             checked={checked}
                                                             onChange={() => {
                                                                 const next = checked
-                                                                    ? data.unlockedDispositions.filter((x: string) => x !== d)
-                                                                    : [...data.unlockedDispositions, d];
+                                                                    ? nd.unlockedDispositions.filter((x: string) => x !== d)
+                                                                    : [...nd.unlockedDispositions, d];
                                                                 updateNodeData(selectedNode.id, { unlockedDispositions: next });
                                                             }}
                                                             style={{ accentColor: C.accent }}
@@ -712,10 +764,10 @@ export default function StepManagement({ data, update }: StepProps) {
                                     ) : (
                                         <>
                                             <Field label="Narrative shown to student">
-                                                <TextArea value={data.narrative} onChange={(e) => updateNodeData(selectedNode.id, { narrative: e.target.value })} className="min-h-[60px]" />
+                                                <TextArea value={nd.narrative} onChange={(e) => updateNodeData(selectedNode.id, { narrative: e.target.value })} className="min-h-[60px]" />
                                             </Field>
                                             <Field label="New symptoms" hint="Comma-separated">
-                                                <TextArea value={data.newSymptoms} onChange={(e) => updateNodeData(selectedNode.id, { newSymptoms: e.target.value })} className="min-h-[46px]" />
+                                                <TextArea value={nd.newSymptoms} onChange={(e) => updateNodeData(selectedNode.id, { newSymptoms: e.target.value })} className="min-h-[46px]" />
                                             </Field>
                                             <div className="text-[11.5px] font-sans font-semibold uppercase my-2" style={{ color: C.inkSoft }}>Resulting vitals</div>
                                             <div className="grid grid-cols-2 gap-1.5 mb-2.5">
@@ -723,8 +775,8 @@ export default function StepManagement({ data, update }: StepProps) {
                                                     <div key={v.key}>
                                                         <div className="text-[10px] font-mono" style={{ color: C.inkFaint }}>{v.label}</div>
                                                         <input
-                                                            value={data.vitalChanges[v.key]}
-                                                            onChange={(e) => updateNodeData(selectedNode.id, { vitalChanges: { ...data.vitalChanges, [v.key]: e.target.value } })}
+                                                            value={nd.vitalChanges[v.key]}
+                                                            onChange={(e) => updateNodeData(selectedNode.id, { vitalChanges: { ...nd.vitalChanges, [v.key]: e.target.value } })}
                                                             placeholder="—"
                                                             className="w-full box-border rounded px-1.5 py-1 font-mono text-xs"
                                                             style={{ border: `1px solid ${C.line}` }}

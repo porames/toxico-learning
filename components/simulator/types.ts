@@ -1,4 +1,4 @@
-import type { ReactNode, CSSProperties, InputHTMLAttributes, TextareaHTMLAttributes, MouseEvent } from "react";
+import type { ReactNode, CSSProperties, InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 export interface VitalSign {
   value: string;
@@ -208,22 +208,6 @@ export interface StepProps {
 
 export interface StepReviewProps {
   data: CaseData;
-}
-
-export interface GraphNodeProps {
-  node: ManagementNode;
-  selected: boolean;
-  onMouseDownHeader: (e: MouseEvent<HTMLDivElement>, node: ManagementNode) => void;
-  onStartConnect: (e: MouseEvent<HTMLDivElement>, nodeId: string) => void;
-}
-
-export type SelectionKind = { kind: "node"; id: string } | { kind: "edge"; id: string } | null;
-
-export interface ConnectLine {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
 }
 
 export interface NodeSize {

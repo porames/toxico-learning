@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { ClassItem, Lecture, Selection, CompletedLecture } from "../dashboard/types";
-import { ChevronLeft, LogOut, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut, Check } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { collection, getDocs, query, where, serverTimestamp, setDoc, doc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
@@ -355,7 +355,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     </button>
                     {currentClass && (
                         <>
-                            <span className="hidden md:inline text-ink-900/20 shrink-0">/</span>
+                            <ChevronRight size={14} className="hidden md:inline text-ink-900/20 shrink-0" />
                             <button
                                 type="button"
                                 onClick={() => router.push(`/classes/${currentClass.id}`)}
@@ -367,7 +367,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                     )}
                     {selectedLecture && (
                         <>
-                            <span className="hidden md:inline text-ink-900/20 shrink-0">/</span>
+                            <ChevronRight size={14} className="hidden md:inline text-ink-900/20 shrink-0" />
                             <span className="hidden md:block truncate text-sm font-medium text-ink-900">{selectedLecture.title}</span>
                         </>
                     )}
@@ -459,7 +459,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                 >
                                     All Classes
                                 </button>
-                                <span className="text-xs text-ink-900/20 shrink-0">/</span>
+                                <ChevronRight size={12} className="text-xs text-ink-900/20 shrink-0" />
                                 <button
                                     type="button"
                                     onClick={() => router.push(`/classes/${currentClass?.id}`)}
@@ -583,7 +583,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                         >
                                             All Classes
                                         </button>
-                                        <span className="text-xs text-ink-900/20 shrink-0">/</span>
+                                        <ChevronRight size={12} className="text-xs text-ink-900/20 shrink-0" />
                                         <button
                                             type="button"
                                             onClick={() => setSelection(null)}
@@ -591,7 +591,7 @@ export default function StudentDashboard({ classId }: { classId?: string }) {
                                         >
                                             {currentClass?.name}
                                         </button>
-                                        <span className="text-xs text-ink-900/20 shrink-0">/</span>
+                                        <ChevronRight size={12} className="text-xs text-ink-900/20 shrink-0" />
                                         <span className="text-xs font-medium text-ink-900 truncate">{selectedLecture?.title}</span>
                                     </div>
 

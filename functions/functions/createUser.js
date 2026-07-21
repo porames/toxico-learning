@@ -10,7 +10,8 @@ export const createUser = onRequest(async (req, res) => {
     await verifyAdmin(req);
 
     const {email, name, year, role, rama_id} = req.body;
-    if (!email || !name || !year || !role || !rama_id) {
+    const needsYear = role === "student" || role === "resident";
+    if (!email || !name || !role || !rama_id || (needsYear && !year)) {
       res.status(400).json({error: "Missing data points"});
       return;
     }
@@ -19,7 +20,7 @@ export const createUser = onRequest(async (req, res) => {
     await userRef.set({
       email,
       name,
-      year,
+      ...(year && {year}),
       role,
       rama_id,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),

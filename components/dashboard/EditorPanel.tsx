@@ -11,7 +11,7 @@ import {
   MATERIAL_COLOR,
 } from "./icons";
 import { db, auth, storage } from "@/lib/firebase";
-import { collection, doc, getDocs, addDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocs, addDoc, serverTimestamp, updateDoc, deleteDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import formatTimeRange from "@/lib/formatTimeRange";
 import {
@@ -102,6 +102,22 @@ export function ClassEditor({
   onBackToClasses?: () => void;
 }) {
   const [saving, setSaving] = useState<boolean>(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteDoc(doc(db, "classes", cls.id));
+      onDelete();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleting(false);
+      setShowConfirm(false);
+    }
+  }
+
   async function saveChanges() {
     setSaving(true);
     try {
@@ -242,11 +258,39 @@ export function ClassEditor({
 
       <button
         type="button"
-        onClick={onDelete}
+        onClick={() => setShowConfirm(true)}
         className="mt-8 text-[13px] font-medium text-red-500 hover:text-red-600"
       >
         Delete this class
       </button>
+
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowConfirm(false)}>
+          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-[15px] font-semibold text-ink-900">Delete class?</p>
+            <p className="mt-2 text-[13px] text-ink-500">
+              This will permanently delete "{cls.name}" and all its lectures and materials. This action cannot be undone.
+            </p>
+            <div className="mt-5 flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="rounded-lg px-3.5 py-2 text-[13px] font-medium text-ink-600 transition hover:bg-ink-900/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDelete}
+                className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-red-600 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -715,8 +759,6 @@ function MaterialCard({
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [requiredPostTest, setRequiredPostTest] = useState(material.requiredPostTest ?? false);
-  const [pdfUploading, setPdfUploading] = useState(false);
-  const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfUrl, setPdfUrl] = useState(material.type === "pdf" ? material.value || "" : "");
   const [fileUploading, setFileUploading] = useState(false);
   const [fileProgress, setFileProgress] = useState(0);
@@ -803,35 +845,12 @@ function MaterialCard({
     }
   }
 
-  async function handlePdfUpload(file: File) {
-    setPdfUploading(true);
-    setPdfProgress(0);
-    try {
-      const storageRef = ref(storage, `materials/${material.id}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      uploadTask.on("state_changed", (snapshot) => {
-        setPdfProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
-      });
-      await uploadTask;
-      const downloadUrl = await getDownloadURL(storageRef);
-      setPdfUrl(downloadUrl);
-      onUpdate({ value: downloadUrl });
-      await updateDoc(
-        doc(db, "classes", classId, "lectures", lectureId, "materials", material.id),
-        { value: downloadUrl }
-      );
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setPdfUploading(false);
-    }
-  }
-
   async function handleFileUpload(file: File) {
     setFileUploading(true);
     setFileProgress(0);
     try {
-      const storageRef = ref(storage, `materials/${material.id}`);
+      const ext = file.name.split(".").pop();
+      const storageRef = ref(storage, `materials/${material.id}.${ext}`);
       const uploadTask = uploadBytesResumable(storageRef, file);
       uploadTask.on("state_changed", (snapshot) => {
         setFileProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
@@ -926,58 +945,29 @@ function MaterialCard({
               />
             )}
 
-            {material.type === "pdf" && (
-              <div className="space-y-2">
-                {!pdfUrl ? (
-                  <div className="flex items-center gap-3">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
-                      <PdfUploadIcon />
-                      {pdfUploading ? `Uploading ${pdfProgress}%` : "Choose PDF file"}
-                      <input
-                        type="file"
-                        accept="application/pdf"
-                        className="hidden"
-                        disabled={pdfUploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handlePdfUpload(file);
-                        }}
-                      />
-                    </label>
-                    {pdfUploading && (
-                      <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-iris-500 transition-all duration-300"
-                          style={{ width: `${pdfProgress}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                    <a
-                      href={pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:text-emerald-700 truncate max-w-[200px]"
-                    >
-                      View PDF
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPdfUrl("");
-                        onUpdate({ value: "" });
-                      }}
-                      className="text-[12px] text-ink-400 hover:text-red-500 underline ml-auto"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
+            {material.type === "pdf" && pdfUrl && (
+              <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-emerald-700 truncate max-w-[200px]"
+                >
+                  View PDF
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPdfUrl("");
+                    onUpdate({ value: "" });
+                  }}
+                  className="text-[12px] text-ink-400 hover:text-red-500 underline ml-auto"
+                >
+                  Remove
+                </button>
               </div>
             )}
 
@@ -1086,73 +1076,7 @@ function MaterialCard({
 
             {material.type === "video" && (
               <div className="space-y-2">
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setVideoMode("youtube")}
-                    className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${videoMode === "youtube" ? "bg-iris-600 text-white" : "bg-ink-900/5 text-ink-700 hover:bg-ink-900/10"}`}
-                  >
-                    YouTube
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVideoMode("upload")}
-                    className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${videoMode === "upload" ? "bg-iris-600 text-white" : "bg-ink-900/5 text-ink-700 hover:bg-ink-900/10"}`}
-                  >
-                    Upload
-                  </button>
-                </div>
-
-                {videoMode === "youtube" ? (
-                  <div className="space-y-2">
-                    <input
-                      value={material.value}
-                      onChange={(e) => onUpdate({ value: e.target.value })}
-                      placeholder="https://youtube.com/watch?v=..."
-                      className={`${fieldClass} !py-1.5 !text-[13px] ${material.value && !getYoutubeVideoId(material.value) ? "outline-red-400 focus:outline-red-500" : ""}`}
-                    />
-                    {material.value && !getYoutubeVideoId(material.value) && (
-                      <p className="text-[12px] text-red-500">Please enter a valid YouTube link</p>
-                    )}
-                    {material.value && getYoutubeVideoId(material.value) && (
-                      <div className="overflow-hidden rounded-lg border border-ink-900/8">
-                        <div className="aspect-video">
-                          <iframe
-                            src={`https://www.youtube.com/embed/${getYoutubeVideoId(material.value)}`}
-                            className="h-full w-full"
-                            allow="autoplay; encrypted-media; picture-in-picture"
-                            allowFullScreen
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : !videoId ? (
-                  <div className="flex items-center gap-3">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
-                      <VideoUploadIcon />
-                      {uploading ? `Uploading ${progress}%` : "Choose video file"}
-                      <input
-                        type="file"
-                        accept="video/*"
-                        className="hidden"
-                        disabled={uploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleVideoUpload(file);
-                        }}
-                      />
-                    </label>
-                    {uploading && (
-                      <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-iris-500 transition-all duration-300"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ) : (
+                {videoId ? (
                   <div className="space-y-2">
                     {embedUrl ? (
                       <div className="overflow-hidden rounded-lg border border-ink-900/8">
@@ -1189,6 +1113,76 @@ function MaterialCard({
                       </button>
                     </div>
                   </div>
+                ) : (
+                  <>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setVideoMode("youtube")}
+                        className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${videoMode === "youtube" ? "bg-iris-600 text-white" : "bg-ink-900/5 text-ink-700 hover:bg-ink-900/10"}`}
+                      >
+                        YouTube
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoMode("upload")}
+                        className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${videoMode === "upload" ? "bg-iris-600 text-white" : "bg-ink-900/5 text-ink-700 hover:bg-ink-900/10"}`}
+                      >
+                        Upload
+                      </button>
+                    </div>
+
+                    {videoMode === "youtube" ? (
+                      <div className="space-y-2">
+                        <input
+                          value={material.value}
+                          onChange={(e) => onUpdate({ value: e.target.value })}
+                          placeholder="https://youtube.com/watch?v=..."
+                          className={`${fieldClass} !py-1.5 !text-[13px] ${material.value && !getYoutubeVideoId(material.value) ? "outline-red-400 focus:outline-red-500" : ""}`}
+                        />
+                        {material.value && !getYoutubeVideoId(material.value) && (
+                          <p className="text-[12px] text-red-500">Please enter a valid YouTube link</p>
+                        )}
+                        {material.value && getYoutubeVideoId(material.value) && (
+                          <div className="overflow-hidden rounded-lg border border-ink-900/8">
+                            <div className="aspect-video">
+                              <iframe
+                                src={`https://www.youtube.com/embed/${getYoutubeVideoId(material.value)}`}
+                                className="h-full w-full"
+                                allow="autoplay; encrypted-media; picture-in-picture"
+                                allowFullScreen
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-ink-900/15 bg-ink-900/[0.015] px-3 py-2 text-[12.5px] text-ink-500 hover:border-iris-400 hover:text-iris-600 transition-colors">
+                          <VideoUploadIcon />
+                          {uploading ? `Uploading ${progress}%` : "Choose video file"}
+                          <input
+                            type="file"
+                            accept="video/*"
+                            className="hidden"
+                            disabled={uploading}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleVideoUpload(file);
+                            }}
+                          />
+                        </label>
+                        {uploading && (
+                          <div className="flex-1 h-2 rounded-full bg-ink-900/10 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-iris-500 transition-all duration-300"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -1214,9 +1208,6 @@ function MaterialCard({
                       body: JSON.stringify({ videoId }),
                     }
                   );
-                }
-                if (material.type === "pdf" && pdfUrl) {
-                  await deleteObject(ref(storage, `materials/${material.id}`));
                 }
               } catch (err) {
                 console.error(err);
@@ -1263,14 +1254,3 @@ function VideoUploadIcon() {
   );
 }
 
-function PdfUploadIcon() {
-  return (
-    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="14 2 14 8 20 8" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="12" y1="18" x2="12" y2="12" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="9" y1="15" x2="12" y2="12" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="15" y1="15" x2="12" y2="12" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}

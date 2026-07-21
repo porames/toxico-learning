@@ -31,7 +31,7 @@ export default function NavigationList({ isAdmin = false }: { isAdmin?: boolean 
     }
     const visibleItems = NAV_ITEMS.filter((item) => {
         if (isAdmin) return true;
-        return item.label === "Classes" || item.label === "Simulation";
+        return item.label === "Classes" || item.label === "Simulator";
     });
     return (
         <div className="space-y-0.5">

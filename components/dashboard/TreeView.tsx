@@ -6,8 +6,6 @@ import {
   ChevronIcon,
   FolderIcon,
   ClockIcon,
-  PlusIcon,
-  TrashIcon,
   MATERIAL_ICON,
   MATERIAL_COLOR,
 } from "./icons";
@@ -28,7 +26,7 @@ interface TreeViewProps {
   onDeleteMaterial: (classId: string, lectureId: string, materialId: string) => void;
 }
 
-/** A single tree row: icon, label, optional subtitle, hover-revealed action buttons. */
+/** A single tree row: icon, label, optional subtitle. */
 function TreeRow({
   depth,
   icon,
@@ -39,7 +37,6 @@ function TreeRow({
   hasChildren,
   onSelect,
   onToggle,
-  actions,
 }: {
   depth: number;
   icon: React.ReactNode;
@@ -50,7 +47,6 @@ function TreeRow({
   hasChildren?: boolean;
   onSelect: () => void;
   onToggle?: () => void;
-  actions?: React.ReactNode;
 }) {
   return (
     <div
@@ -87,37 +83,7 @@ function TreeRow({
         {subtitle && <span className="shrink-0 truncate text-[12px] text-ink-300">{subtitle}</span>}
       </span>
 
-      {actions && (
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex">{actions}</span>
-      )}
     </div>
-  );
-}
-
-function RowIconButton({
-  onClick,
-  label,
-  danger,
-  children,
-}: {
-  onClick: (e: React.MouseEvent) => void;
-  label: string;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick(e);
-      }}
-      aria-label={label}
-      className={`flex h-6 w-6 items-center justify-center rounded transition ${danger ? "text-ink-300 hover:bg-red-50 hover:text-red-500" : "text-ink-300 hover:bg-iris-50 hover:text-iris-600"
-        }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -169,16 +135,6 @@ export default function TreeView({
               hasChildren
               onSelect={() => onSelect({ level: "class", classId: cls.id })}
               onToggle={() => onToggle(cls.id, classExpanded)}
-              actions={
-                <>
-                  <RowIconButton label="Add lecture" onClick={() => onAddLecture(cls.id)}>
-                    <PlusIcon className="h-3.5 w-3.5" />
-                  </RowIconButton>
-                  <RowIconButton label="Delete class" danger onClick={() => onDeleteClass(cls.id)}>
-                    <TrashIcon className="h-3.5 w-3.5" />
-                  </RowIconButton>
-                </>
-              }
             />
 
             {classExpanded && (
@@ -217,20 +173,6 @@ export default function TreeView({
                                   hasChildren={false}
                                   onSelect={() => onSelect({ level: "lecture", classId: cls.id, lectureId: lec.id })}
                                   onToggle={() => onToggle(lec.id, lecExpanded)}
-                                  actions={
-                                    <>
-                                      <RowIconButton label="Add material" onClick={() => onAddMaterial(cls.id, lec.id)}>
-                                        <PlusIcon className="h-3.5 w-3.5" />
-                                      </RowIconButton>
-                                      <RowIconButton
-                                        label="Delete lecture"
-                                        danger
-                                        onClick={() => onDeleteLecture(cls.id, lec.id)}
-                                      >
-                                        <TrashIcon className="h-3.5 w-3.5" />
-                                      </RowIconButton>
-                                    </>
-                                  }
                                 />
                               );
                             })}
